@@ -29,9 +29,7 @@ def _upright(model, projection_dir):
     return model.rotate((0, 0, 0), projection_dir, 180)
 
 PREVIEW_OPTS = {            # the fast visual check
-    # Chosen so an exploded view reads left to right in assembly order, sled
-    # then board then faceplate. _upright corrects which way up it lands.
-    "projectionDir": (-1, 1, 0.8),
+    "projectionDir": (1, -1, 0.8),
     "width": 800, "height": 800,
     # CadQuery's own defaults here are marginLeft=200, marginTop=20, which
     # pushes a part this size off the left of the frame.
@@ -95,7 +93,7 @@ def export_section_preview(model, name):
     print("Exported:", svg_path)
 
 DOC_OPTS = {                # the README hero image
-    "projectionDir": (-1, 1, 0.8),
+    "projectionDir": (1, -1, 0.8),
     "width": 1000, "height": 700,
     "marginLeft": 20, "marginTop": 20,
     "showAxes": False,
