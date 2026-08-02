@@ -30,6 +30,33 @@ Tray cross-section, looking down -Y::
 
 Nothing supports the board but the standoffs, so its solder joints never reach
 the metal. That is deliberate: the board is dense with through-hole joints.
+
+Where the forming rules come from
+---------------------------------
+Some of the numbers below are published DFM rules and some are our own choices.
+They are not equally trustworthy and it is worth knowing which is which before
+arguing with a fabricator about one of them.
+
+Taken from PCBWay's sheet-metal bending guide, stated in its text:
+
+    ``min_feature_to_bend``   hole to bend, 4T
+    ``min_flange``            bend radius + 4T
+    ``bend_allowance``        BA = angle * (R + K * T) * pi / 180
+
+Also from that guide, but read off a table image rather than its text, so
+transcribed rather than quoted:
+
+    ``bend_r``                1-2T inside radius for 5052
+
+Our own defaults, chosen as reasonable practice and **not** from any published
+rule. Any of these is worth confirming with whoever is cutting the parts:
+
+    ``min_edge_dist``         hole to sheared edge, 2T
+    ``min_web``               metal beside a cut-out in the plate, 2.0 mm
+    ``k_factor``              0.38
+    ``bend_relief_w``         1.5 mm
+
+https://www.pcbway.com/blog/PCB_Design_Layout/Sheet_Metal_Bending_Design_Guide_DFM_Rules_Bend_Radius_Bend_Allowance_and_Ma_cd445f27.html
 """
 
 import math
@@ -105,11 +132,16 @@ class ChassisSpec:
     # --- sled: folded sheet ------------------------------------------------
     material: str = "5052-H32"  # folds at ~1x t; 6061 cracks and needs 3-4x
     sheet_t: float = 1.0
-    bend_r: float = 1.0  # inside radius, about 1x thickness for 5052
-    # Bend allowance is shop-specific. 0.38 is reasonable for 5052 at this
-    # radius, but the report prints it so a fabricator can substitute theirs.
+    # 1T, the bottom of the 1-2T band PCBWay give for 5052. That band comes from
+    # a table image in their guide rather than its text, so it is transcribed
+    # rather than quoted.
+    bend_r: float = 1.0
+    # Our default, not a sourced figure. Bend allowance is shop-specific and
+    # every flat dimension depends on it, so the report prints it prominently
+    # for a fabricator to substitute their own.
     k_factor: float = 0.38
-    bend_relief_w: float = 1.5  # slot at each bend end, stops the corner tearing
+    # Our default. Enough slot at each bend end to stop the corner tearing.
+    bend_relief_w: float = 1.5
     # Set by the M3 hole, not by the screw: a hole punched flat has to sit 4t
     # clear of the bend it will be folded near or forming pulls it oval, and 2t
     # clear of the sheared tip. With an M3 through it those two leave no legal
@@ -151,7 +183,9 @@ class ChassisSpec:
     tool_d: float = 3.0  # rougher: channel, pocket, body relief
     fine_tool_d: float = 2.0  # finisher: corner reliefs, apertures, lip
     edge_break: float = 0.5
-    min_web: float = 2.0  # thinnest strip of metal left beside a cut-out
+    # Our default, not a sourced rule: thinnest strip of metal left beside a
+    # cut-out in the plate.
+    min_web: float = 2.0
 
     # --- data --------------------------------------------------------------
     apertures: tuple[Aperture, ...] = ()
@@ -300,6 +334,10 @@ class ChassisSpec:
         size. Sheet does not shorten by the full corner: it stretches on the
         outside and compresses on the inside, and the neutral axis sits at
         ``k_factor`` of the way through.
+
+        The formula is PCBWay's, stated in its text as
+        ``BA = angle * (R + K * T) * pi / 180``. The K-factor fed into it is
+        ours, and shop-specific; see :attr:`k_factor`.
         """
         return (math.pi / 2) * (self.bend_r + self.k_factor * self.sheet_t)
 
@@ -332,8 +370,11 @@ class ChassisSpec:
     def min_edge_dist(self) -> float:
         """Least metal from a hole's edge to the edge of the sheet.
 
-        The sheet-metal equivalent of ``min_web``, and a different rule: punching
-        or cutting closer than about twice the thickness distorts the edge.
+        **Our default, not a sourced rule.** The guide these other figures come
+        from says nothing about hole-to-edge distance. 2T is common practice and
+        errs safe, but published guidance runs from about 1.5T to 3T depending on
+        whether the hole is punched or laser cut, and laser is the more forgiving
+        of the two. Worth confirming rather than defending.
         """
         return 2 * self.sheet_t
 
@@ -341,8 +382,9 @@ class ChassisSpec:
     def min_flange(self) -> float:
         """Shortest flange a press brake can form, measured from the bend tangent.
 
-        Bend radius plus 4t, not 4t alone: the radius consumes flange before any
-        straight material exists for the tool to hold.
+        PCBWay's guide, stated in its text as "bend radius + 4T". Not 4T alone:
+        the radius consumes flange before any straight material exists for the
+        tool to hold.
         """
         return self.bend_r + 4 * self.sheet_t
 
@@ -350,8 +392,12 @@ class ChassisSpec:
     def min_feature_to_bend(self) -> float:
         """Least metal from a hole's edge to a bend line it will be folded beside.
 
+        PCBWay's guide, stated in its text as "hole-to-bend distance >= 4T".
         Closer than this and forming drags the hole out of round, because the
         material around it is still being stretched as the bend forms.
+
+        It applies to holes made while the sheet is flat. Drilling after the
+        folds sidesteps it entirely, at the cost of an extra operation.
         """
         return 4 * self.sheet_t
 

@@ -45,11 +45,19 @@ module to offer up as one piece. The build prints the aperture size to rout.
 **5052 rather than 6061 for the tray**: 6061-T6 cracks at tight bend radii and wants an inside
 radius of three to four times material thickness. 5052-H32 folds happily at about one.
 
-The forming parameters follow standard sheet-metal DFM rules, and the report prints each rule
-next to what the design actually achieves: inside bend radius within 1 to 2 times thickness,
-minimum flange of bend radius plus 4t, holes 4t clear of any bend and 2t clear of a sheared
-edge. The wing flanges are sized by that hole-to-bend rule rather than by the M2 screw, since
-the holes are punched while the sheet is flat and forming would pull them oval otherwise.
+The report prints each forming rule next to what the design actually achieves, and separates
+the ones that come from a published guide from the ones we chose. Taken from
+[PCBWay's sheet-metal bending guide](https://www.pcbway.com/blog/PCB_Design_Layout/Sheet_Metal_Bending_Design_Guide_DFM_Rules_Bend_Radius_Bend_Allowance_and_Ma_cd445f27.html):
+minimum flange of bend radius plus 4t, holes 4t clear of any bend, and an inside bend radius of
+1 to 2 times thickness for 5052. Our own defaults, not from any published rule: the K-factor,
+the bend relief width, and holes 2t clear of a sheared edge. Any of those three is worth
+confirming with whoever cuts the parts, and the K-factor most of all, since every dimension on
+the flat blank depends on it.
+
+The wing flanges are sized by that hole-to-bend rule rather than by the M3 screw, because the
+holes are punched while the sheet is flat and forming would pull them oval otherwise. Drilling
+after the folds would remove that constraint and take about 5 mm off the faceplate's width, at
+the cost of an extra operation.
 
 ## Quick start
 

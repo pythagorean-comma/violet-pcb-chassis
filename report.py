@@ -51,24 +51,34 @@ def manufacturing_report(spec: ChassisSpec) -> str:
     lines.append(f"  Material      {spec.material}, {spec.sheet_t:.1f} mm")
     lines.append(f"  Inside radius {spec.bend_r:.1f} mm  ({spec.bend_r / spec.sheet_t:.1f} x t)")
     lines.append(f"  K-factor      {spec.k_factor:.2f}  -> bend allowance "
-                 f"{spec.bend_allowance:.3f} mm per 90 deg bend")
-    lines.append("                CHECK THIS AGAINST YOUR OWN: bend allowance is")
-    lines.append("                shop-specific and every flat dimension depends on it.")
+                 f"{spec.bend_allowance:.3f} mm per 90 deg bend  (see below)")
     lines.append(f"  {len(flat.bends)} bends, all 90 deg:")
     for bend in flat.bends:
         lines.append(f"    {bend.name:<12} {bend.direction:<8} at {bend.position:6.2f} mm "
                      f"on the blank")
     lines.append(f"  Bend relief   {spec.bend_relief_w:.1f} mm at each bend end")
-    lines.append("")
-    lines.append("  DFM, rule against actual:")
-    lines.append(f"    bend radius       1-2 x t          {spec.bend_r / spec.sheet_t:.1f} x t")
+
+    lines.append(_rule("DFM: published rules, against what the design does"))
+    lines.append("  From PCBWay's sheet-metal bending guide:")
     lines.append(f"    min flange        R + 4t = {spec.min_flange:.1f}     "
                  f"{flat.shortest_flange:.1f} mm")
     lines.append(f"    hole to bend      4t = {spec.min_feature_to_bend:.1f}         "
                  f"{spec.wing_hole_from_bend:.2f} mm")
+    lines.append(f"    bend radius       1-2 x t          {spec.bend_r / spec.sheet_t:.1f} x t"
+                 "   (from their material table)")
+    lines.append("")
+    lines.append("  OUR OWN DEFAULTS, not from any published rule. Substitute your")
+    lines.append("  own if they differ; we would rather be told than guess:")
+    lines.append(f"    K-factor          {spec.k_factor:.2f}             "
+                 f"-> {spec.bend_allowance:.3f} mm per bend")
+    lines.append("                      every flat dimension depends on this one")
     lines.append(f"    hole to edge      2t = {spec.min_edge_dist:.1f}         "
-                 f"{spec.wing_hole_from_tip:.2f} mm")
-    lines.append("  The M2 holes are punched flat, so the wing flange is sized to")
+                 f"{spec.wing_hole_from_tip:.2f} mm on the wing,"
+                 f" {spec.plate_w / 2 - abs(spec.fixing_xz[1][0]) - spec.body_screw_clear_d / 2:.2f}"
+                 " on the plate")
+    lines.append(f"    bend relief       {spec.bend_relief_w:.1f} mm")
+    lines.append("")
+    lines.append("  The fixing holes are punched flat, so the wing flange is sized to")
     lines.append("  hold them clear of the fold rather than to suit the screw.")
 
     lines.append(_rule("Fits"))
