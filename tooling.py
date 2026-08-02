@@ -46,12 +46,24 @@ def countersunk_hole(
     clear_d: float,
     head_d: float,
     angle: float,
+    facing: int = 1,
 ) -> cq.Workplane:
-    """A countersunk clearance hole drilled along -Y from the face at ``y_face``.
+    """A countersunk clearance hole through a wall, normal to the Y axis.
 
-    The head recess opens on the rear face, so the screws are driven from inside
-    the cavity while the sled and plate are on the bench.
+    The head recess always opens on the plane ``y_face``; ``facing`` says which
+    way, and so from which side the screw is driven:
+
+    * ``+1`` opens towards +Y, into the instrument cavity. The sled's wing
+      screws, done up from behind while the module is on the bench.
+    * ``-1`` opens towards -Y, out of the visible face. The screws that fix the
+      faceplate to the instrument, done up from outside once it is in.
+
+    The tool is built once along local +Z and then turned to suit, so the two
+    cases cannot drift apart.
     """
+    if facing not in (1, -1):
+        raise ValueError("facing must be +1 (towards +Y) or -1 (towards -Y)")
+
     cone_h = (head_d - clear_d) / 2 / math.tan(math.radians(angle / 2))
 
     shank = cq.Solid.makeCylinder(
@@ -65,12 +77,13 @@ def countersunk_hole(
     )
 
     tool = shank.fuse(cone, head).clean()
-    # Local +Z becomes global +Y, so the recess opens towards the cavity.
+    # Local +Z maps to global +Y or -Y; either way the recess, built at local
+    # z = depth, has to come to rest on the y_face plane.
     return (
         cq.Workplane("XY")
         .add(tool)
-        .rotate((0, 0, 0), (1, 0, 0), -90)
-        .translate((x, y_face - depth, z))
+        .rotate((0, 0, 0), (1, 0, 0), -90 * facing)
+        .translate((x, y_face - depth * facing, z))
     )
 
 

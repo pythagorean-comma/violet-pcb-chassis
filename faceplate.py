@@ -16,7 +16,14 @@ from typing import Callable
 import cadquery as cq
 
 from params import Aperture, ChassisSpec
-from tooling import OVERSHOOT, block, break_edges_near, rod, rounded_slab
+from tooling import (
+    OVERSHOOT,
+    block,
+    break_edges_near,
+    countersunk_hole,
+    rod,
+    rounded_slab,
+)
 
 Transform = Callable[[cq.Workplane, ChassisSpec], cq.Workplane]
 
@@ -103,15 +110,25 @@ def drill_mating_holes(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
 
 
 def drill_body_mounts(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
-    """Countersink the holes that fix the plate to the instrument body.
+    """Countersink the M3 holes that fix the plate to the instrument body.
 
-    ``body_mount_holes`` is empty until the fixing method is settled, at which
-    point this becomes a data change in the spec rather than a code change here.
+    One in each ear, in the flange that stands proud of the sled. These are the
+    only fixings driven from *outside* once the module is in, so unlike the wing
+    screws their recess opens on the visible face and the heads finish flush
+    with it.
     """
-    for x, z in spec.body_mount_holes:
-        hole = rod(0.0, 0.0, spec.screw_clear_d, -spec.plate_t - OVERSHOOT, OVERSHOOT)
+    for x, z in spec.body_mount_xz:
         part = part.cut(
-            hole.rotate((0, 0, 0), (1, 0, 0), -90).translate((x, 0, z))
+            countersunk_hole(
+                x=x,
+                z=z,
+                y_face=-spec.plate_t,
+                depth=spec.plate_t,
+                clear_d=spec.body_screw_clear_d,
+                head_d=spec.body_csk_d,
+                angle=spec.csk_angle,
+                facing=-1,
+            )
         )
     return part
 
@@ -132,8 +149,11 @@ PIPELINE: tuple[Transform, ...] = (
     cut_rear_relief,
     cut_apertures,
     drill_mating_holes,
-    drill_body_mounts,
     break_edges,
+    # After the edge break on purpose. A countersink is the finish for its own
+    # hole: chamfering its rim would widen the recess and stop the head seating
+    # flush, and the cut degenerates against the 45 degree cone anyway.
+    drill_body_mounts,
 )
 
 

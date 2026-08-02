@@ -29,6 +29,10 @@ Sled cross-section, looking down -Y::
 
 from dataclasses import dataclass
 
+# Slack for geometric comparisons. Dimensions here are sums of decimals that do
+# not land exactly in binary, so an exact-limit spec would otherwise fail.
+TOL = 1e-9
+
 # ---------------------------------------------------------------------------
 # Faceplate cut-outs
 # ---------------------------------------------------------------------------
@@ -101,17 +105,28 @@ class ChassisSpec:
 
     # --- faceplate ---------------------------------------------------------
     plate_t: float = 4.0
-    plate_margin: float = 4.0  # plate outline beyond the sled envelope
+    # Plate outline beyond the sled envelope. Wider than tall on purpose: the
+    # extra width either side forms the ears that carry the body-fixing screws,
+    # while above and below the aperture the plate only has to cover the hole.
+    #
+    # 12.0 leaves 3 mm of metal between a 6 mm head and both the aperture and
+    # the plate edge. 10.0 is the arithmetic minimum but leaves nothing in hand.
+    plate_margin_x: float = 12.0
+    plate_margin_z: float = 4.0
     plate_corner_r: float = 3.0
     lip_h: float = 2.0  # how far the lip tabs stand proud of the mating plane
     lip_overhang: float = 4.0  # how far each tab reaches in over the board
 
     # --- fasteners ---------------------------------------------------------
+    # M2, sled wings into the faceplate, driven from inside the cavity.
     screw_clear_d: float = 2.5
     csk_d: float = 4.0
     csk_angle: float = 90.0
     tap_drill_d: float = 1.6  # M2 x 0.4
     thread_depth: float = 3.0
+    # M3, faceplate into threaded inserts in the instrument, driven from outside.
+    body_screw_clear_d: float = 3.4
+    body_csk_d: float = 6.0
 
     # --- manufacturing -----------------------------------------------------
     tool_d: float = 3.0  # rougher: channel, pocket, body relief
@@ -122,7 +137,6 @@ class ChassisSpec:
 
     # --- data --------------------------------------------------------------
     apertures: tuple[Aperture, ...] = ()
-    body_mount_holes: tuple[tuple[float, float], ...] = ()
 
     # -- derived: tools -----------------------------------------------------
 
@@ -220,11 +234,25 @@ class ChassisSpec:
 
     @property
     def plate_w(self) -> float:
-        return self.sled_w + 2 * self.plate_margin
+        return self.sled_w + 2 * self.plate_margin_x
 
     @property
     def plate_h(self) -> float:
-        return self.sled_h + 2 * self.plate_margin
+        return self.sled_h + 2 * self.plate_margin_z
+
+    @property
+    def body_mount_xz(self) -> tuple[tuple[float, float], ...]:
+        """(x, z) of the two screws that fix the plate to the instrument.
+
+        One centred in each ear, on the plate's horizontal centreline. Derived
+        rather than listed so it stays right for any board: the ear only exists
+        because the plate is wider than the sled, and this is the middle of it.
+
+        Two is enough. The sled sitting in the routed aperture is what stops the
+        plate rotating; the screws only have to clamp it.
+        """
+        x = self.sled_w / 2 + self.plate_margin_x / 2
+        return ((-x, self.z_mid), (x, self.z_mid))
 
     # -- derived: manufacturing ---------------------------------------------
 
@@ -341,6 +369,23 @@ class ChassisSpec:
                 "fine_tool_d is meant to be the smaller of the two cutters")
         require(self.pcb_corner_r < min(self.pcb_w, self.pcb_depth) / 2,
                 f"pcb_corner_r {self.pcb_corner_r} is too large for the board outline")
+
+        # The body-fixing heads have to land on solid plate. Too far in and the
+        # screw opens into the routed aperture with nothing behind it; too far
+        # out and it breaks through the plate's edge.
+        # Compared with a tolerance: a spec sitting exactly on a limit is legal,
+        # and these values are sums of decimals that do not land exactly.
+        head_r = self.body_csk_d / 2
+        for x, _z in self.body_mount_xz:
+            require(abs(x) - head_r >= self.sled_w / 2 + self.min_web - TOL,
+                    f"body-fixing head at x={x:.2f} comes within {self.min_web} mm of the "
+                    "aperture; widen plate_margin_x")
+            require(abs(x) + head_r <= self.plate_w / 2 - self.min_web + TOL,
+                    f"body-fixing head at x={x:.2f} comes within {self.min_web} mm of the "
+                    "plate edge; widen plate_margin_x")
+            for wx, _wz in self.wing_hole_xz:
+                require(abs(abs(x) - abs(wx)) >= head_r + self.csk_d / 2 - TOL,
+                        f"body-fixing head at x={x:.2f} fouls the M2 wing head at x={wx:.2f}")
 
 
 # ---------------------------------------------------------------------------

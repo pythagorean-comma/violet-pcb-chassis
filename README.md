@@ -18,7 +18,9 @@ Two machined parts, plus the board they carry:
 - **Sled**: a U-section carrier. The board slides in along a stepped pocket and rests on a
   ledge down each side, with clearance underneath for solder tails and bottom-side parts.
 - **Faceplate**: closes the aperture from outside. Two tabs on its rear face reach in over the
-  board's side margins and hold its front edge down on the ledges.
+  board's side margins and hold its front edge down on the ledges. It stands wider than the sled
+  at each end, and those ears carry the countersunk M3 screws that fix the unit to the
+  instrument.
 
 They go together like this:
 
@@ -129,7 +131,10 @@ and some strain relief, not measured off an assembled board).
 `rmc` is still entirely **placeholder**: plausible numbers standing in until that board is
 measured. Replace them before cutting metal.
 
-`body_mount_holes` is empty on both, so nothing yet fixes the faceplate to the instrument body.
-It is a data field, so adding those holes is an edit to the spec rather than to any code. The
-Cycfi board also carries four M2 mounting holes inset 2.5 mm from its corners, currently unused
+The Cycfi board carries four M2 mounting holes inset 2.5 mm from its corners, currently unused
 because the sled captures the board mechanically.
+
+Fixing the plate to the instrument assumes **M3 threaded inserts** fitted into the body either
+side of the aperture. The report prints where they go. Inserts rather than wood screws means the
+plate can come off and back on repeatedly without chewing the timber, at the cost of fitting them
+before first assembly.

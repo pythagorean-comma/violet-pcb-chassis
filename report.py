@@ -32,7 +32,12 @@ def manufacturing_report(spec: ChassisSpec) -> str:
     lines.append(_rule("Instrument preparation"))
     lines.append(f"  Rout the edge aperture  {ap_w:.1f} wide x {ap_h:.1f} high")
     lines.append(f"  Depth into the body     {spec.sled_depth:.1f} mm minimum")
-    lines.append(f"  Faceplate covers it by  {spec.plate_margin:.1f} mm all round")
+    lines.append(
+        f"  Faceplate overlaps it   {spec.plate_margin_x:.1f} mm each side,"
+        f" {spec.plate_margin_z:.1f} mm top and bottom"
+    )
+    lines.append(f"  Fit M3 threaded inserts at X {spec.body_mount_xz[0][0]:+.2f}"
+                 f" and {spec.body_mount_xz[1][0]:+.2f}, on the aperture's centreline")
 
     fine_work = ["apertures"] if spec.apertures else []
     if spec.needs_corner_reliefs:
@@ -68,10 +73,14 @@ def manufacturing_report(spec: ChassisSpec) -> str:
     lines.append(f"               modelled at {spec.tap_drill_d:.1f} tap drill; do not read thread from the STEP")
     for x, z in spec.wing_hole_xz:
         lines.append(f"               at X {x:+.2f}, Z {z:+.2f}")
-    if not spec.body_mount_holes:
-        lines.append("  Faceplate to instrument: not yet specified (body_mount_holes is empty)")
-    else:
-        lines.append(f"  {len(spec.body_mount_holes)} off  faceplate-to-body holes, {spec.screw_clear_d:.1f} clearance")
+    lines.append("")
+    lines.append(f"  {len(spec.body_mount_xz)} off  M3 x 0.5 countersunk, into threaded inserts in the body")
+    lines.append(f"  Faceplate    {spec.body_screw_clear_d:.1f} clearance,"
+                 f" {spec.body_csk_d:.1f} csk at {spec.csk_angle:.0f} deg included,"
+                 " opening on the outer face")
+    for x, z in spec.body_mount_xz:
+        lines.append(f"               at X {x:+.2f}, Z {z:+.2f}")
+    lines.append("               driven from outside, after the module is in")
 
     lines.append(_rule("Assembly"))
     lines.append("  1. Slide the PCB into the sled channel until it meets the back wall.")
