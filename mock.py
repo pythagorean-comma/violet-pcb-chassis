@@ -9,11 +9,8 @@ Keep-out envelope
 -----------------
 The board slab itself, plus:
 
-* **top** -- the full board footprint up to ``top_clear``, except for a strip
-  ``lip_overhang`` wide down each side over the first ``lip_h`` of board, where
-  the faceplate's retention tabs come down. Tall parts must stay out of those
-  two corners; everything else along the front edge, including the connectors,
-  is free.
+* **top** -- the full board footprint up to ``top_clear``. Nothing reaches in
+  over the board any more, so nothing is given back.
 * **bottom** -- the full footprint down to the standoff height. Unlike the
   machined design there is no ledge under the board's edges, so nothing is
   excluded: the whole underside has to clear the tray floor.
@@ -65,26 +62,15 @@ def build_pcb_board(spec: ChassisSpec) -> cq.Workplane:
 
 
 def build_pcb_mock(spec: ChassisSpec) -> cq.Workplane:
-    """The board and everything that must stay clear of metal around it."""
-    half_w = spec.pcb_w / 2
+    """The board and everything that must stay clear of metal around it.
 
-    # Everything above the board, then the two front corners given back so the
-    # retention tabs have somewhere to land.
+    The whole footprint, top and bottom, with nothing given back. The plate has
+    no tabs reaching in over the board any more, and the board rests only on its
+    standoffs rather than on a ledge, so there is no longer any region where
+    metal is expected to intrude.
+    """
     top = _outline_prism(spec, spec.pcb_t, spec.z_top)
-    for sign in (-1, 1):
-        top = top.cut(
-            block(
-                sign * (half_w - spec.lip_overhang), sign * (half_w + OVERSHOOT),
-                -OVERSHOOT, spec.lip_h,
-                spec.pcb_t - OVERSHOOT, spec.z_top + OVERSHOOT,
-            )
-        )
-
-    # Everything below the board, over its whole outline. The board rests only
-    # on the standoffs now, so unlike the machined design there is no ledge under
-    # its edges and nothing to exclude.
     bottom = _outline_prism(spec, spec.z_floor_inner, 0.0)
-
     return build_pcb_board(spec).union(top).union(bottom)
 
 
@@ -164,10 +150,6 @@ def check_clearance(spec: ChassisSpec) -> list[str]:
         volume = _overlap(a, b)
         require(volume <= 0.0, f"{name}: {volume:.3f} mm3 of interference")
 
-    # The tabs only register the tray now, but they still must not sit on the board.
-    slot_gap = spec.lip_tab_z[0] - spec.pcb_t
-    require(slot_gap >= 0.0, f"retention tab bites into the board by {-slot_gap:.2f} mm")
-
     # Standoffs have to bed on flat floor, not lap onto a bend, or the board tilts.
     # These sit *on* the floor, so a coplanar contact patch is expected and the
     # kernel reports a sliver for it. CONTACT_TOL passes that while still
@@ -186,13 +168,28 @@ def check_clearance(spec: ChassisSpec) -> list[str]:
     else:
         require(False, "no standoffs: the board would rest on bare metal")
 
-    # The module has to be able to get in too.
+    # The module has to get in, and only the body goes through the hole. Measured
+    # behind the wing flanges rather than taken from the bounding box, because
+    # the box includes the wings and they stay outside the instrument. The whole
+    # width saving rests on that, so it is worth measuring rather than assuming.
     aperture_w, aperture_h = spec.aperture_required
-    bb = sled.val().BoundingBox()
+    body = sled.intersect(
+        block(
+            -spec.sled_w, spec.sled_w,
+            spec.channel_depth / 2 - 0.5, spec.channel_depth / 2 + 0.5,
+            spec.z_bot - 1.0, spec.z_top + 1.0,
+        )
+    )
+    bb = body.val().BoundingBox()
     require(
         bb.xlen <= aperture_w + 1e-6 and bb.zlen <= aperture_h + 1e-6,
-        f"sled is {bb.xlen:.2f} x {bb.zlen:.2f}, larger than the reported "
+        f"tray body is {bb.xlen:.2f} x {bb.zlen:.2f}, larger than the reported "
         f"{aperture_w:.2f} x {aperture_h:.2f} aperture",
+    )
+    require(
+        sled.val().BoundingBox().xlen > aperture_w + 1e-6,
+        "the wings do not reach past the aperture, so nothing stops the tray "
+        "falling through it",
     )
 
     # Each part must survive as one piece.
@@ -200,11 +197,15 @@ def check_clearance(spec: ChassisSpec) -> list[str]:
         count = len(part.solids().vals())
         require(count == 1, f"{label} came apart into {count} solids")
 
-    # Screws must reach, without bottoming out.
-    require(
-        spec.thread_depth <= spec.plate_t - 0.8,
-        "tapped hole breaks through the visible face of the plate",
-    )
+    # One screw has to pass cleanly through both parts at each fixing.
+    for x, z in spec.fixing_xz:
+        shaft = rod(x, 0.0, spec.body_screw_clear_d, -1.0, 1.0)
+        shaft = shaft.rotate((0, 0, 0), (1, 0, 0), -90).translate((0, 0, z))
+        blocked = _overlap(shaft, sled) + _overlap(shaft, plate)
+        require(
+            blocked <= CONTACT_TOL,
+            f"the fixing at x={x:.2f} is obstructed by {blocked:.3f} mm3 of metal",
+        )
 
     failures.extend(spec.aperture_warnings())
     return failures

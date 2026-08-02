@@ -163,7 +163,7 @@ def flat_pattern(spec: ChassisSpec) -> FlatPattern:
     hole_y = -(ba / 2) - (spec.wing_hole_offset - spec.bend_r)
     hole_x = bx + spec.sheet_t + (spec.z_mid - (spec.z_floor_inner + spec.bend_r))
     holes = tuple(
-        (sign * hole_x, hole_y, spec.screw_clear_d) for sign in (-1, 1)
+        (sign * hole_x, hole_y, spec.body_screw_clear_d) for sign in (-1, 1)
     )
 
     bends = (
@@ -183,4 +183,44 @@ def flat_pattern(spec: ChassisSpec) -> FlatPattern:
         width=max(xs) - min(xs),
         height=max(ys) - min(ys),
         shortest_flange=min(flange.values()),
+    )
+
+
+def plate_pattern(spec: ChassisSpec) -> FlatPattern:
+    """Develop the faceplate, which is already flat.
+
+    A blank with no bends at all. Since the plate stopped being a machined billet
+    with proud tabs, it is cut from the same sheet stock as the tray and belongs
+    in the same kind of file, so it returns the same type rather than a special
+    case the exporters would have to know about.
+
+    The outline's rounded corners are emitted as straight chords, enough for the
+    extents and area to be right; the DXF the shop cuts from carries the true
+    outline, which comes from the solid.
+    """
+    import math
+
+    hw, hh = spec.plate_w / 2, spec.plate_h / 2
+    r = spec.plate_corner_r
+    pts: list[tuple[float, float]] = []
+    for cx, cy, start in (
+        (hw - r, hh - r, 0.0),
+        (-(hw - r), hh - r, 90.0),
+        (-(hw - r), -(hh - r), 180.0),
+        (hw - r, -(hh - r), 270.0),
+    ):
+        for step in range(5):
+            a = math.radians(start + step * 22.5)
+            pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+
+    holes = tuple(
+        (x, z - spec.z_mid, spec.body_screw_clear_d) for x, z in spec.fixing_xz
+    )
+    return FlatPattern(
+        outline=tuple(pts),
+        holes=holes,
+        bends=(),
+        width=spec.plate_w,
+        height=spec.plate_h,
+        shortest_flange=0.0,
     )

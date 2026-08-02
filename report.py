@@ -14,101 +14,103 @@ def _rule(title: str) -> str:
 
 def manufacturing_report(spec: ChassisSpec) -> str:
     """Everything needed to quote and cut one chassis."""
-    from flatten import flat_pattern
+    from flatten import flat_pattern, plate_pattern
 
     ap_w, ap_h = spec.aperture_required
-    plate_x, plate_y, plate_z = spec.stock_plate
     flat = flat_pattern(spec)
+    plate = plate_pattern(spec)
 
     lines = [
         f"\n{'=' * 68}",
         f"  {spec.name}  -  PCB {spec.pcb_w} x {spec.pcb_depth} x {spec.pcb_t} mm",
         f"{'=' * 68}",
-        "  Two parts, two processes:",
-        f"    Tray       {spec.material} sheet, {spec.sheet_t:.1f} mm, laser cut and folded",
-        "    Faceplate  6061-T6 aluminium, machined from plate",
+        f"  Two sheet parts, both {spec.material}:",
+        f"    Tray       {spec.sheet_t:.1f} mm, laser cut then folded",
+        f"    Faceplate  {spec.plate_t:.1f} mm, laser cut only",
+        "  Nothing is machined and nothing is tapped.",
     ]
 
     lines.append(_rule("Stock"))
-    lines.append(f"  Tray blank {flat.width:.1f} x {flat.height:.1f} mm of "
-                 f"{spec.sheet_t:.1f} mm sheet  (see the DXF)")
-    lines.append(f"  Faceplate  {plate_x:.1f} x {plate_y:.1f} x {plate_z:.1f} mm")
+    lines.append(f"  Tray blank   {flat.width:.1f} x {flat.height:.1f} mm of "
+                 f"{spec.sheet_t:.1f} mm  (see the DXF)")
+    lines.append(f"  Plate blank  {plate.width:.1f} x {plate.height:.1f} mm of "
+                 f"{spec.plate_t:.1f} mm  (see the DXF)")
 
     lines.append(_rule("Instrument preparation"))
     lines.append(f"  Rout the edge aperture  {ap_w:.1f} wide x {ap_h:.1f} high")
     lines.append(f"  Depth into the body     {spec.sled_depth:.1f} mm minimum")
-    lines.append(
-        f"  Faceplate overlaps it   {spec.plate_margin_x:.1f} mm each side,"
-        f" {spec.plate_margin_z:.1f} mm top and bottom"
-    )
-    lines.append(f"  Fit M3 threaded inserts at X {spec.body_mount_xz[0][0]:+.2f}"
-                 f" and {spec.body_mount_xz[1][0]:+.2f}, on the aperture's centreline")
+    lines.append("  Only the tray body enters the hole. Its wings stay outside,")
+    lines.append("  clamped between the faceplate and the instrument's face.")
+    lines.append(f"  Faceplate covers it by  "
+                 f"{(spec.plate_w - ap_w) / 2:.1f} mm each side,"
+                 f" {spec.plate_margin_z:.1f} mm top and bottom")
+    lines.append(f"  Fit M3 threaded inserts at X {spec.fixing_xz[0][0]:+.2f}"
+                 f" and {spec.fixing_xz[1][0]:+.2f}, on the aperture's centreline")
 
     lines.append(_rule("Tray: bend schedule"))
     lines.append(f"  Material      {spec.material}, {spec.sheet_t:.1f} mm")
     lines.append(f"  Inside radius {spec.bend_r:.1f} mm  ({spec.bend_r / spec.sheet_t:.1f} x t)")
     lines.append(f"  K-factor      {spec.k_factor:.2f}  -> bend allowance "
-                 f"{spec.bend_allowance:.3f} mm per 90 deg bend")
-    lines.append("                CHECK THIS AGAINST YOUR OWN: bend allowance is")
-    lines.append("                shop-specific and every flat dimension depends on it.")
+                 f"{spec.bend_allowance:.3f} mm per 90 deg bend  (see below)")
     lines.append(f"  {len(flat.bends)} bends, all 90 deg:")
     for bend in flat.bends:
         lines.append(f"    {bend.name:<12} {bend.direction:<8} at {bend.position:6.2f} mm "
                      f"on the blank")
     lines.append(f"  Bend relief   {spec.bend_relief_w:.1f} mm at each bend end")
-    lines.append("")
-    lines.append("  DFM, rule against actual:")
-    lines.append(f"    bend radius       1-2 x t          {spec.bend_r / spec.sheet_t:.1f} x t")
+
+    lines.append(_rule("DFM: published rules, against what the design does"))
+    lines.append("  From PCBWay's sheet-metal bending guide:")
     lines.append(f"    min flange        R + 4t = {spec.min_flange:.1f}     "
                  f"{flat.shortest_flange:.1f} mm")
     lines.append(f"    hole to bend      4t = {spec.min_feature_to_bend:.1f}         "
                  f"{spec.wing_hole_from_bend:.2f} mm")
+    lines.append(f"    bend radius       1-2 x t          {spec.bend_r / spec.sheet_t:.1f} x t"
+                 "   (from their material table)")
+    lines.append("")
+    lines.append("  OUR OWN DEFAULTS, not from any published rule. Substitute your")
+    lines.append("  own if they differ; we would rather be told than guess:")
+    lines.append(f"    K-factor          {spec.k_factor:.2f}             "
+                 f"-> {spec.bend_allowance:.3f} mm per bend")
+    lines.append("                      every flat dimension depends on this one")
     lines.append(f"    hole to edge      2t = {spec.min_edge_dist:.1f}         "
-                 f"{spec.wing_hole_from_tip:.2f} mm")
-    lines.append("  The M2 holes are punched flat, so the wing flange is sized to")
+                 f"{spec.wing_hole_from_tip:.2f} mm on the wing,"
+                 f" {spec.plate_w / 2 - abs(spec.fixing_xz[1][0]) - spec.body_screw_clear_d / 2:.2f}"
+                 " on the plate")
+    lines.append(f"    bend relief       {spec.bend_relief_w:.1f} mm")
+    lines.append("")
+    lines.append("  The fixing holes are punched flat, so the wing flange is sized to")
     lines.append("  hold them clear of the fold rather than to suit the screw.")
-
-    lines.append(_rule("Faceplate: tooling"))
-    fine_work = ["apertures"] if spec.apertures else []
-    fine_work.append("retention tabs")
-    lines.append(f"  Roughing      {spec.tool_d:.1f} mm end mill  (outline, rear relief)")
-    lines.append(f"  Finishing     {spec.fine_tool_d:.1f} mm end mill  ({', '.join(fine_work)})")
 
     lines.append(_rule("Fits"))
     lines.append(f"  Board to wall        {spec.side_clear:.2f} mm each side")
     lines.append(f"  Board above floor    {spec.standoff_h:.2f} mm on the standoffs")
-    lines.append(f"  Board to tab         {spec.slot_clear:.2f} mm above")
     lines.append(f"  Board to back wall   {spec.end_clear:.2f} mm")
+    lines.append(f"  Plate off the body   {spec.sheet_t:.2f} mm, the wing sitting under it")
 
     lines.append(_rule("Fasteners"))
-    lines.append(f"  2 off  M2 x 0.4 countersunk, {spec.screw_len:.0f} mm minimum length")
-    lines.append(f"  Sled wings   {spec.screw_clear_d:.1f} clearance, {spec.csk_d:.1f} csk at {spec.csk_angle:.0f} deg included")
-    lines.append(f"  Faceplate    tap M2 x 0.4, {spec.thread_depth:.1f} deep blind")
-    lines.append(f"               modelled at {spec.tap_drill_d:.1f} tap drill; do not read thread from the STEP")
-    for x, z in spec.wing_hole_xz:
-        lines.append(f"               at X {x:+.2f}, Z {z:+.2f}")
+    lines.append(f"  2 off  M3 x 0.5 pan or button head, {spec.screw_len:.0f} mm minimum")
+    lines.append("  One screw does the whole job at each side: through the")
+    lines.append("  faceplate, through the tray's wing, into an insert in the body.")
+    lines.append(f"  Both parts    {spec.body_screw_clear_d:.1f} mm clearance, no countersink")
+    for x, z in spec.fixing_xz:
+        lines.append(f"                at X {x:+.2f}, Z {z:+.2f}")
+    lines.append("  Nothing is tapped in either part.")
     lines.append("")
-    lines.append(f"  {len(spec.body_mount_xz)} off  M3 x 0.5 countersunk, into threaded inserts in the body")
-    lines.append(f"  Faceplate    {spec.body_screw_clear_d:.1f} clearance,"
-                 f" {spec.body_csk_d:.1f} csk at {spec.csk_angle:.0f} deg included,"
-                 " opening on the outer face")
-    for x, z in spec.body_mount_xz:
-        lines.append(f"               at X {x:+.2f}, Z {z:+.2f}")
-    lines.append("               driven from outside, after the module is in")
+    lines.append(f"  4 off  M2, board down onto the standoffs "
+                 f"({spec.board_hole_d:.1f} mm clearance in the board)")
 
     lines.append(_rule("Assembly"))
     lines.append("  1. Stick the standoffs to the tray floor, then screw the board down.")
-    lines.append("  2. Screw the faceplate to the tray's wing flanges from behind; the")
-    lines.append("     retention tabs drop between the walls and register the two parts.")
-    lines.append("  3. Insert the whole module through the aperture from outside.")
-    lines.append("  4. Fix the faceplate to the body.")
+    lines.append("  2. Offer the tray into the aperture from outside; its wings stop it")
+    lines.append("     passing through and locate it against the instrument's face.")
+    lines.append("  3. Place the faceplate over the wings.")
+    lines.append("  4. Two screws through plate, wing and insert hold all three together.")
+    lines.append("")
+    lines.append("  Note the tray and plate are not joined until step 4, so there is no")
+    lines.append("  pre-assembled module to offer up as one piece.")
 
     lines.append(_rule("Keep-outs on the PCB"))
     lines.append(f"  Top side     {spec.top_clear:.1f} mm clear above the board")
-    lines.append(
-        f"  Front corners  no tall parts within {spec.lip_overhang:.1f} mm of each side edge"
-        f" over the first {spec.lip_h:.1f} mm -- the retention tabs land there"
-    )
     lines.append(f"  Bottom side  {spec.standoff_h:.1f} mm clear, the standoff height")
     lines.append(f"  Cable exit   {spec.cable_slot_w:.1f} mm notch in the back wall")
 

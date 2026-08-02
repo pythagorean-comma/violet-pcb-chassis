@@ -9,7 +9,7 @@ in the exported STEP:
 
 The assembled view needs no positioning at all. Both machined parts are already
 modelled in the shared chassis frame at their fitted positions -- the sled over
-``Y = [0, sled_depth]``, the faceplate over ``Y = [-plate_t, lip_h]`` -- which is
+``Y = [0, sled_depth]``, the faceplate over ``Y = [-plate_t, 0]`` -- which is
 exactly what lets :func:`mock.check_clearance` assert that they do not overlap.
 So the assembly is three ``.add()`` calls with identity locations, and only the
 exploded view carries offsets.

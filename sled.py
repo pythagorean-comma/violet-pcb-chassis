@@ -121,13 +121,16 @@ def cut_cable_relief(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
 
 
 def drill_wing_holes(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
-    """Punch the two M2 clearance holes that hold the tray to the faceplate.
+    """Punch the two M3 clearance holes the fixing screws pass through.
 
-    Plain holes, not countersunk: a 4 mm countersunk head cannot be sunk into
-    sheet this thin, so these take pan heads and the plate carries the thread.
+    The tray is not screwed to the faceplate. One screw per side goes through
+    the plate, through this flange, and into a threaded insert in the
+    instrument, clamping the wing between the two. So this is a plain clearance
+    hole and the flange is sized to hold it clear of the fold rather than to
+    suit a screw head.
     """
-    for x, z in spec.wing_hole_xz:
-        hole = rod(0.0, 0.0, spec.screw_clear_d, -OVERSHOOT, spec.sheet_t + OVERSHOOT)
+    for x, z in spec.fixing_xz:
+        hole = rod(0.0, 0.0, spec.body_screw_clear_d, -OVERSHOOT, spec.sheet_t + OVERSHOOT)
         part = part.cut(
             hole.rotate((0, 0, 0), (1, 0, 0), -90).translate((x, 0, z))
         )

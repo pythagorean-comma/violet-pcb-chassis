@@ -4,7 +4,8 @@ A parametric [CadQuery](https://cadquery.readthedocs.io) model for a two-part al
 that carries a PCB into the edge of a musical instrument body and back out again for service,
 without dismantling the instrument.
 
-It emits a folded-sheet tray (STEP plus a flat DXF for cutting) and a machined faceplate (STEP).
+Both parts are cut from 5052 sheet: it emits a flat DXF for each, plus STEP models of the folded
+and assembled result.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/exploded-dark.svg">
@@ -18,29 +19,45 @@ Two parts made two different ways, plus the board they carry:
 - **Tray**: folded from 1.0 mm 5052-H32 sheet. A flat floor, two side walls, a back wall with a
   cable notch, and a flange at the front of each side wall. Five bends. The board sits on nylon
   standoffs with adhesive bases, which is what keeps its solder joints off the metal.
-- **Faceplate**: machined from 6061 plate, because it needs tapped holes, countersinks and proud
-  tabs that thin sheet cannot carry. It closes the aperture from outside, its two rear tabs drop
-  between the tray's walls to register the parts, and it stands wider than the tray at each end
-  so those ears can take the countersunk M3 screws that fix the unit to the instrument.
+- **Faceplate**: 2.0 mm 5052 sheet. Cut flat and left that way: no bends, no machining, no
+  threads. An outline, the connector apertures and two holes.
+
+**One screw per side does everything.** It passes through the faceplate, through the tray's wing
+flange, and into a threaded insert in the instrument, clamping all three together. There is no
+separate tray-to-plate fastening, nothing is tapped in either part, and the whole chassis takes
+two screws.
+
+That has a consequence worth more than the fastener saving: **the wings never enter the
+aperture**. Clamped outside it, they stop the tray falling through and locate it against the
+instrument's face, so the hole only has to admit the tray body. It is 20 mm narrower than it
+would otherwise be.
 
 They go together like this:
 
 1. Stick the standoffs to the tray floor, then screw the board down.
-2. Screw the faceplate to the tray's front flanges from behind, on the bench.
-3. Insert the whole module through the aperture from outside.
-4. Fix the faceplate to the instrument body.
+2. Offer the tray into the aperture; its wings stop it passing through.
+3. Place the faceplate over the wings.
+4. Two screws through plate, wing and insert hold all three together.
 
-Because the module is assembled first and inserted as one piece, the entire tray envelope has to
-pass through the routed aperture. The build prints the aperture size to rout.
+Note that the tray and plate are not joined until the last step, so there is no pre-assembled
+module to offer up as one piece. The build prints the aperture size to rout.
 
 **5052 rather than 6061 for the tray**: 6061-T6 cracks at tight bend radii and wants an inside
 radius of three to four times material thickness. 5052-H32 folds happily at about one.
 
-The forming parameters follow standard sheet-metal DFM rules, and the report prints each rule
-next to what the design actually achieves: inside bend radius within 1 to 2 times thickness,
-minimum flange of bend radius plus 4t, holes 4t clear of any bend and 2t clear of a sheared
-edge. The wing flanges are sized by that hole-to-bend rule rather than by the M2 screw, since
-the holes are punched while the sheet is flat and forming would pull them oval otherwise.
+The report prints each forming rule next to what the design actually achieves, and separates
+the ones that come from a published guide from the ones we chose. Taken from
+[PCBWay's sheet-metal bending guide](https://www.pcbway.com/blog/PCB_Design_Layout/Sheet_Metal_Bending_Design_Guide_DFM_Rules_Bend_Radius_Bend_Allowance_and_Ma_cd445f27.html):
+minimum flange of bend radius plus 4t, holes 4t clear of any bend, and an inside bend radius of
+1 to 2 times thickness for 5052. Our own defaults, not from any published rule: the K-factor,
+the bend relief width, and holes 2t clear of a sheared edge. Any of those three is worth
+confirming with whoever cuts the parts, and the K-factor most of all, since every dimension on
+the flat blank depends on it.
+
+The wing flanges are sized by that hole-to-bend rule rather than by the M3 screw, because the
+holes are punched while the sheet is flat and forming would pull them oval otherwise. Drilling
+after the folds would remove that constraint and take about 5 mm off the faceplate's width, at
+the cost of an extra operation.
 
 ## Quick start
 
@@ -79,8 +96,9 @@ Per variant, in `out/`:
 | --- | --- |
 | `tray_flat_<name>.dxf` | **The flat blank**, outline on a `CUT` layer and bend lines on a `BEND` layer. For a folded part this is the file the shop cuts from |
 | `tray_flat_<name>.svg` | The same blank rendered back out of that DXF, drawn 1:1 with the bends labelled, so you can look at it or print it and check |
+| `plate_flat_<name>.dxf` / `.svg` | The faceplate's blank, which is flat to begin with, in the same pair of formats |
 | `sled_<name>.step` | The tray in its folded form |
-| `faceplate_<name>.step` | The plate, for machining |
+| `faceplate_<name>.step` | The plate as a solid, for checking the fit |
 | `assembly_<name>.step` | Both parts and the board, fitted (separate named, coloured components) |
 | `exploded_<name>.step` | The same, drawn apart in assembly order |
 | `section_<name>.svg` | A slice through a standoff row, showing the gap under the board |

@@ -30,6 +30,33 @@ Tray cross-section, looking down -Y::
 
 Nothing supports the board but the standoffs, so its solder joints never reach
 the metal. That is deliberate: the board is dense with through-hole joints.
+
+Where the forming rules come from
+---------------------------------
+Some of the numbers below are published DFM rules and some are our own choices.
+They are not equally trustworthy and it is worth knowing which is which before
+arguing with a fabricator about one of them.
+
+Taken from PCBWay's sheet-metal bending guide, stated in its text:
+
+    ``min_feature_to_bend``   hole to bend, 4T
+    ``min_flange``            bend radius + 4T
+    ``bend_allowance``        BA = angle * (R + K * T) * pi / 180
+
+Also from that guide, but read off a table image rather than its text, so
+transcribed rather than quoted:
+
+    ``bend_r``                1-2T inside radius for 5052
+
+Our own defaults, chosen as reasonable practice and **not** from any published
+rule. Any of these is worth confirming with whoever is cutting the parts:
+
+    ``min_edge_dist``         hole to sheared edge, 2T
+    ``min_web``               metal beside a cut-out in the plate, 2.0 mm
+    ``k_factor``              0.38
+    ``bend_relief_w``         1.5 mm
+
+https://www.pcbway.com/blog/PCB_Design_Layout/Sheet_Metal_Bending_Design_Guide_DFM_Rules_Bend_Radius_Bend_Allowance_and_Ma_cd445f27.html
 """
 
 import math
@@ -100,24 +127,26 @@ class ChassisSpec:
     # under it, beyond where the wall's bend starts. 2.0 leaves about 1 mm of
     # placement margin, which matters because the bases are stuck on by hand.
     side_clear: float = 2.0  # per side, board edge to the folded wall
-    slot_clear: float = 0.2  # board top face to lip underside
     end_clear: float = 0.5  # board far edge to the back wall
-    lip_clear: float = 0.3  # lip tab to wall, a slip fit
 
     # --- sled: folded sheet ------------------------------------------------
     material: str = "5052-H32"  # folds at ~1x t; 6061 cracks and needs 3-4x
     sheet_t: float = 1.0
-    bend_r: float = 1.0  # inside radius, about 1x thickness for 5052
-    # Bend allowance is shop-specific. 0.38 is reasonable for 5052 at this
-    # radius, but the report prints it so a fabricator can substitute theirs.
+    # 1T, the bottom of the 1-2T band PCBWay give for 5052. That band comes from
+    # a table image in their guide rather than its text, so it is transcribed
+    # rather than quoted.
+    bend_r: float = 1.0
+    # Our default, not a sourced figure. Bend allowance is shop-specific and
+    # every flat dimension depends on it, so the report prints it prominently
+    # for a fabricator to substitute their own.
     k_factor: float = 0.38
-    bend_relief_w: float = 1.5  # slot at each bend end, stops the corner tearing
-    # Set by the M2 hole, not by the screw: a hole punched flat has to sit 4t
+    # Our default. Enough slot at each bend end to stop the corner tearing.
+    bend_relief_w: float = 1.5
+    # Set by the M3 hole, not by the screw: a hole punched flat has to sit 4t
     # clear of the bend it will be folded near or forming pulls it oval, and 2t
-    # clear of the sheared tip. Those two plus the hole and the bend radius need
-    # 9.5, which leaves exactly one legal position; 10.0 buys 0.5 mm of
-    # manufacturing margin either side of it.
-    wing_w: float = 10.0  # how far each wing flange stands out from the wall
+    # clear of the sheared tip. With an M3 through it those two leave no legal
+    # position below 10.4, so 11.0 buys a little margin either side.
+    wing_w: float = 11.0  # how far each wing flange stands out from the wall
     cable_slot_w: float = 6.0
     cable_slot_floor_z: float = 3.0  # notch floor, above the board underside
 
@@ -129,36 +158,34 @@ class ChassisSpec:
     standoff_od: float = 5.0
     board_hole_d: float = 2.2  # M2 clearance in the board
 
-    # --- faceplate ---------------------------------------------------------
-    plate_t: float = 4.0
-    # Plate outline beyond the sled envelope. Wider than tall on purpose: the
-    # extra width either side forms the ears that carry the body-fixing screws,
-    # while above and below the aperture the plate only has to cover the hole.
-    #
-    # 12.0 leaves 3 mm of metal between a 6 mm head and both the aperture and
-    # the plate edge. 10.0 is the arithmetic minimum but leaves nothing in hand.
-    plate_margin_x: float = 12.0
+    # --- faceplate: flat sheet ---------------------------------------------
+    # Sheet, not plate. It only became possible to make this from 2 mm once the
+    # tray stopped screwing into it: nothing here is tapped any more.
+    plate_t: float = 2.0
+    # Only the vertical margin is a free choice. The plate's width is not: it
+    # follows from where the wing can put the fixing hole.
     plate_margin_z: float = 4.0
     plate_corner_r: float = 3.0
-    lip_h: float = 2.0  # how far the lip tabs stand proud of the mating plane
-    lip_overhang: float = 4.0  # how far each tab reaches in over the board
 
     # --- fasteners ---------------------------------------------------------
-    # M2, sled wings into the faceplate, driven from inside the cavity.
-    screw_clear_d: float = 2.5
-    csk_d: float = 4.0
-    csk_angle: float = 90.0
-    tap_drill_d: float = 1.6  # M2 x 0.4
-    thread_depth: float = 3.0
-    # M3, faceplate into threaded inserts in the instrument, driven from outside.
+    # One M3 per side does the whole job: through the faceplate, through the
+    # tray's wing flange, into a threaded insert in the instrument. Nothing is
+    # tapped in either part and there is no separate tray-to-plate screw.
+    #
+    # Pan or button head, not countersunk: a laser cannot sink a head, and
+    # countersinking would make the plate a two-operation part for no structural
+    # gain. The heads stand proud of the visible face.
     body_screw_clear_d: float = 3.4
-    body_csk_d: float = 6.0
+    body_head_d: float = 6.0  # for edge clearance on the plate
+    insert_depth: float = 6.0  # thread engagement in the instrument's insert
 
     # --- manufacturing -----------------------------------------------------
     tool_d: float = 3.0  # rougher: channel, pocket, body relief
     fine_tool_d: float = 2.0  # finisher: corner reliefs, apertures, lip
     edge_break: float = 0.5
-    min_web: float = 2.0  # thinnest strip of metal left beside a cut-out
+    # Our default, not a sourced rule: thinnest strip of metal left beside a
+    # cut-out in the plate.
+    min_web: float = 2.0
 
     # --- data --------------------------------------------------------------
     apertures: tuple[Aperture, ...] = ()
@@ -190,7 +217,12 @@ class ChassisSpec:
 
     @property
     def sled_w(self) -> float:
-        """Full envelope, measured across the wing flanges."""
+        """Full envelope, measured across the wing flanges.
+
+        Wider than the aperture on purpose. The wings are clamped between the
+        faceplate and the instrument's outer face, so they never pass through the
+        hole; see :attr:`aperture_required`.
+        """
         return self.body_w + 2 * self.wing_w
 
     # -- derived: Y ---------------------------------------------------------
@@ -247,62 +279,52 @@ class ChassisSpec:
         return tuple((x, self.board_y0 + y) for x, y in self.board_holes)
 
     @property
-    def wing_hole_xz(self) -> tuple[tuple[float, float], ...]:
-        """(x, z) of the two M2 positions, shared by the wings and the plate."""
+    def fixing_xz(self) -> tuple[tuple[float, float], ...]:
+        """(x, z) of the two screws that hold the whole assembly together.
+
+        One property, not two, because it is one screw: it passes through the
+        faceplate, through the tray's wing flange, and into a threaded insert in
+        the instrument. Both parts drill to this, so they cannot disagree.
+
+        Its position is set by the wing, not by the plate. The flange is thin
+        sheet with a bend at one end and a sheared edge at the other, and those
+        two rules leave only a narrow band where the hole may sit.
+        """
         x = self.body_w / 2 + self.wing_hole_offset
         return ((-x, self.z_mid), (x, self.z_mid))
-
-    @property
-    def lip_tab_x(self) -> tuple[tuple[float, float], ...]:
-        """(x_inner, x_outer) of each retention tab, left then right."""
-        outer = self.channel_w / 2 - self.lip_clear
-        inner = outer - self.lip_overhang
-        return ((-outer, -inner), (inner, outer))
-
-    @property
-    def lip_tab_z(self) -> tuple[float, float]:
-        """(bottom, top) of the retention tabs; the bottom bears on the board."""
-        return (self.pcb_t + self.slot_clear, self.z_top)
 
     # -- derived: faceplate -------------------------------------------------
 
     @property
     def plate_w(self) -> float:
-        return self.sled_w + 2 * self.plate_margin_x
+        """Wide enough to carry the fixings, which the wing has already placed."""
+        x = self.fixing_xz[1][0]
+        return 2 * (x + self.body_head_d / 2 + self.min_web)
 
     @property
     def plate_h(self) -> float:
         return self.sled_h + 2 * self.plate_margin_z
 
-    @property
-    def body_mount_xz(self) -> tuple[tuple[float, float], ...]:
-        """(x, z) of the two screws that fix the plate to the instrument.
-
-        One centred in each ear, on the plate's horizontal centreline. Derived
-        rather than listed so it stays right for any board: the ear only exists
-        because the plate is wider than the sled, and this is the middle of it.
-
-        Two is enough. The sled sitting in the routed aperture is what stops the
-        plate rotating; the screws only have to clamp it.
-        """
-        x = self.sled_w / 2 + self.plate_margin_x / 2
-        return ((-x, self.z_mid), (x, self.z_mid))
-
     # -- derived: manufacturing ---------------------------------------------
 
     @property
     def aperture_required(self) -> tuple[float, float]:
-        """The (width, height) hole to rout in the instrument's edge."""
-        return (self.sled_w, self.sled_h)
+        """The (width, height) hole to rout in the instrument's edge.
+
+        The tray body only. The wings are clamped between the faceplate and the
+        instrument's outer face, so they stay outside the hole rather than
+        passing through it, and the aperture is that much narrower for it.
+        """
+        return (self.body_w, self.sled_h)
 
     @property
     def stock_plate(self) -> tuple[float, float, float]:
-        return (self.plate_w, self.plate_h, self.plate_t + self.lip_h)
+        return (self.plate_w, self.plate_h, self.plate_t)
 
     @property
     def screw_len(self) -> float:
-        """Minimum M2 pan-head screw length: through the wing flange, into the plate."""
-        return self.sheet_t + self.thread_depth
+        """Minimum M3 length: through the plate, through the wing, into the insert."""
+        return self.plate_t + self.sheet_t + self.insert_depth
 
     @property
     def bend_allowance(self) -> float:
@@ -312,6 +334,10 @@ class ChassisSpec:
         size. Sheet does not shorten by the full corner: it stretches on the
         outside and compresses on the inside, and the neutral axis sits at
         ``k_factor`` of the way through.
+
+        The formula is PCBWay's, stated in its text as
+        ``BA = angle * (R + K * T) * pi / 180``. The K-factor fed into it is
+        ours, and shop-specific; see :attr:`k_factor`.
         """
         return (math.pi / 2) * (self.bend_r + self.k_factor * self.sheet_t)
 
@@ -344,8 +370,11 @@ class ChassisSpec:
     def min_edge_dist(self) -> float:
         """Least metal from a hole's edge to the edge of the sheet.
 
-        The sheet-metal equivalent of ``min_web``, and a different rule: punching
-        or cutting closer than about twice the thickness distorts the edge.
+        **Our default, not a sourced rule.** The guide these other figures come
+        from says nothing about hole-to-edge distance. 2T is common practice and
+        errs safe, but published guidance runs from about 1.5T to 3T depending on
+        whether the hole is punched or laser cut, and laser is the more forgiving
+        of the two. Worth confirming rather than defending.
         """
         return 2 * self.sheet_t
 
@@ -353,8 +382,9 @@ class ChassisSpec:
     def min_flange(self) -> float:
         """Shortest flange a press brake can form, measured from the bend tangent.
 
-        Bend radius plus 4t, not 4t alone: the radius consumes flange before any
-        straight material exists for the tool to hold.
+        PCBWay's guide, stated in its text as "bend radius + 4T". Not 4T alone:
+        the radius consumes flange before any straight material exists for the
+        tool to hold.
         """
         return self.bend_r + 4 * self.sheet_t
 
@@ -362,8 +392,12 @@ class ChassisSpec:
     def min_feature_to_bend(self) -> float:
         """Least metal from a hole's edge to a bend line it will be folded beside.
 
+        PCBWay's guide, stated in its text as "hole-to-bend distance >= 4T".
         Closer than this and forming drags the hole out of round, because the
         material around it is still being stretched as the bend forms.
+
+        It applies to holes made while the sheet is flat. Drilling after the
+        folds sidesteps it entirely, at the cost of an extra operation.
         """
         return 4 * self.sheet_t
 
@@ -374,22 +408,22 @@ class ChassisSpec:
         Not the flange's midpoint. The hole is squeezed between two rules pulling
         opposite ways, 4t clear of the bend and 2t clear of the tip, so it is
         placed midway between those two limits instead. Centring it would need a
-        flange 12.5 mm long rather than 10, and every millimetre of flange is two
-        more millimetres of hole in the instrument.
+        far longer flange, and every millimetre of flange is two more millimetres
+        of faceplate.
         """
-        nearest = self.bend_r + self.min_feature_to_bend + self.screw_clear_d / 2
-        furthest = self.wing_w - self.min_edge_dist - self.screw_clear_d / 2
+        nearest = self.bend_r + self.min_feature_to_bend + self.body_screw_clear_d / 2
+        furthest = self.wing_w - self.min_edge_dist - self.body_screw_clear_d / 2
         return (nearest + furthest) / 2
 
     @property
     def wing_hole_from_bend(self) -> float:
         """Distance from the wing hole's near edge back to its bend tangent."""
-        return self.wing_hole_offset - self.bend_r - self.screw_clear_d / 2
+        return self.wing_hole_offset - self.bend_r - self.body_screw_clear_d / 2
 
     @property
     def wing_hole_from_tip(self) -> float:
         """Distance from the wing hole's far edge to the flange's sheared tip."""
-        return self.wing_w - self.wing_hole_offset - self.screw_clear_d / 2
+        return self.wing_w - self.wing_hole_offset - self.body_screw_clear_d / 2
 
     # -- checks on the aperture data ----------------------------------------
 
@@ -422,11 +456,11 @@ class ChassisSpec:
             if z1 > self.z_top or z0 < self.z_floor_inner:
                 notes.append(f"{where}: reaches outside the tray's opening")
 
-            # The retention tabs pass through the plate's rear face here.
-            tab_z0, tab_z1 = self.lip_tab_z
-            for tab_x0, tab_x1 in self.lip_tab_x:
-                if x0 < tab_x1 and x1 > tab_x0 and z0 < tab_z1 and z1 > tab_z0:
-                    notes.append(f"{where}: overlaps a retention tab and would cut it away")
+            # The fixing screws pass through the plate here.
+            for fx, fz in self.fixing_xz:
+                r = self.body_head_d / 2 + self.min_web
+                if x0 < fx + r and x1 > fx - r and z0 < fz + r and z1 > fz - r:
+                    notes.append(f"{where}: crowds the fixing screw at X {fx:+.1f}")
 
         return notes
 
@@ -446,25 +480,15 @@ class ChassisSpec:
         require(self.bend_relief_w >= self.sheet_t,
                 "bend relief narrower than the sheet will tear at the corner")
         require(self.wing_hole_from_tip >= self.min_edge_dist - TOL,
-                f"M2 wing hole sits {self.wing_hole_from_tip:.2f} mm from the flange tip, "
+                f"fixing hole sits {self.wing_hole_from_tip:.2f} mm from the flange tip, "
                 f"inside the {self.min_edge_dist:.1f} mm needed")
         require(self.wing_w - self.bend_r >= self.min_flange - TOL,
                 f"wing flange is shorter than the {self.min_flange} mm a brake can form")
         require(self.wing_hole_from_bend >= self.min_feature_to_bend - TOL,
-                f"M2 wing hole sits {self.wing_hole_from_bend:.2f} mm from its bend, inside "
+                f"fixing hole sits {self.wing_hole_from_bend:.2f} mm from its bend, inside "
                 f"the {self.min_feature_to_bend:.1f} mm needed; widen wing_w to at least "
-                f"{2 * (self.min_feature_to_bend + self.bend_r + self.screw_clear_d / 2):.1f}")
+                f"{self.min_feature_to_bend + self.bend_r + self.body_screw_clear_d + self.min_edge_dist:.1f}")
 
-        # Machining limits, which now apply only to the faceplate.
-        require(self.thread_depth <= self.plate_t - 0.8,
-                "tapped hole would break through the visible face of the plate")
-        require(self.lip_overhang >= self.fine_tool_d,
-                "lip tab is narrower than the tool that has to cut around it")
-        require(self.fine_tool_d <= self.tool_d,
-                "fine_tool_d is meant to be the smaller of the two cutters")
-
-        require(self.lip_h > 0 and self.lip_h < self.pcb_depth,
-                "lip_h must be positive and shorter than the board")
         require(self.cable_slot_floor_z > self.pcb_t,
                 "cable notch floor must clear the board")
         require(self.cable_slot_w <= self.channel_w,
@@ -484,22 +508,20 @@ class ChassisSpec:
             require(0 <= y <= self.pcb_depth,
                     f"standoff at y={y:.2f} is off the board")
 
-        # The body-fixing heads have to land on solid plate. Too far in and the
-        # screw opens into the routed aperture with nothing behind it; too far
-        # out and it breaks through the plate's edge.
+        # Each fixing has to land on solid metal in both parts at once. Too far
+        # in and it opens into the routed aperture with nothing behind it; too
+        # far out and it breaks through the plate's edge.
         # Compared with a tolerance: a spec sitting exactly on a limit is legal,
         # and these values are sums of decimals that do not land exactly.
-        head_r = self.body_csk_d / 2
-        for x, _z in self.body_mount_xz:
-            require(abs(x) - head_r >= self.sled_w / 2 + self.min_web - TOL,
-                    f"body-fixing head at x={x:.2f} comes within {self.min_web} mm of the "
-                    "aperture; widen plate_margin_x")
+        head_r = self.body_head_d / 2
+        aperture_w, _ = self.aperture_required
+        for x, _z in self.fixing_xz:
+            require(abs(x) - head_r >= aperture_w / 2 + self.min_web - TOL,
+                    f"fixing head at x={x:.2f} comes within {self.min_web} mm of the "
+                    "aperture, so it would have no instrument behind it")
             require(abs(x) + head_r <= self.plate_w / 2 - self.min_web + TOL,
-                    f"body-fixing head at x={x:.2f} comes within {self.min_web} mm of the "
-                    "plate edge; widen plate_margin_x")
-            for wx, _wz in self.wing_hole_xz:
-                require(abs(abs(x) - abs(wx)) >= head_r + self.csk_d / 2 - TOL,
-                        f"body-fixing head at x={x:.2f} fouls the M2 wing head at x={wx:.2f}")
+                    f"fixing head at x={x:.2f} comes within {self.min_web} mm of the "
+                    "plate edge")
 
 
 # ---------------------------------------------------------------------------
