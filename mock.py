@@ -14,25 +14,22 @@ The board slab itself, plus:
   the faceplate's retention tabs come down. Tall parts must stay out of those
   two corners; everything else along the front edge, including the connectors,
   is free.
-* **bottom** -- the full footprint down to the standoff height. Unlike the
-  machined design there is no ledge under the board's edges, so nothing is
-  excluded: the whole underside has to clear the tray floor.
-
-The standoffs are modelled too, since they are what holds the board off the
-floor and they are the parts most likely to foul something.
+* **bottom** -- the footprint shrunk by ``bot_keepout_inset`` on the sides and
+  the far end, down to ``bot_clear``. The board's own edges are excluded because
+  that is where it rests on the ledges.
 """
 
 import cadquery as cq
 
 from params import ChassisSpec
-from tooling import OVERSHOOT, block, rod
+from tooling import OVERSHOOT, block
+
+# How far inside the board outline tall bottom-side parts must stay. The board's
+# edges sit on the ledges, so nothing can hang below them there.
+BOT_KEEPOUT_INSET = 2.0
 
 # Thickness of the slice taken for the section preview.
 SECTION_T = 2.0
-
-# Volume the kernel may report where two parts are meant to touch face to face.
-# Well under the size of any real interference, which starts in whole cubic mm.
-CONTACT_TOL = 0.5
 
 
 def _outline_prism(spec: ChassisSpec, z0: float, z1: float) -> cq.Workplane:
@@ -80,54 +77,40 @@ def build_pcb_mock(spec: ChassisSpec) -> cq.Workplane:
             )
         )
 
-    # Everything below the board, over its whole outline. The board rests only
-    # on the standoffs now, so unlike the machined design there is no ledge under
-    # its edges and nothing to exclude.
-    bottom = _outline_prism(spec, spec.z_floor_inner, 0.0)
+    # The board's own edges rest on the ledges, so nothing may hang below them
+    # there. Inset rather than rounded: it is already well inside the fillets.
+    bottom = block(
+        -(half_w - BOT_KEEPOUT_INSET), half_w - BOT_KEEPOUT_INSET,
+        0.0, spec.pcb_depth - BOT_KEEPOUT_INSET,
+        spec.z_pocket_floor, 0.0,
+    )
 
     return build_pcb_board(spec).union(top).union(bottom)
 
 
-def build_standoffs(spec: ChassisSpec) -> cq.Workplane:
-    """The nylon standoffs, as they sit between the floor and the board."""
-    pillars = [
-        rod(x, y, spec.standoff_od, spec.z_floor_inner, 0.0)
-        for x, y in spec.standoff_xy
-    ]
-    if not pillars:
-        return cq.Workplane("XY")
-    stack = pillars[0]
-    for pillar in pillars[1:]:
-        stack = stack.union(pillar)
-    return stack
-
-
 def build_channel_section(spec: ChassisSpec) -> cq.Workplane:
-    """A slice through the tray, with the board on its standoffs.
+    """A slice through the sled at mid-channel, with the board sitting in it.
 
-    The isometric preview cannot show the gap the standoffs hold open under the
-    board, which is the whole point of them. This can: metal, standoffs and
-    board in one plane.
+    The isometric preview cannot show whether the board actually lands on the
+    ledges. This can: everything in one plane, metal and board together.
 
-    Sliced through a standoff row rather than at mid-depth, so the standoffs
-    actually appear. They are kept as separate solids in a compound: a union
-    would swallow the board into the metal and leave nothing to see.
+    The two are kept as separate solids in a compound rather than unioned. A
+    union would swallow the board into the metal and leave nothing to see but
+    the clearance gaps.
     """
     from sled import build_sled
 
-    y = spec.standoff_xy[0][1] if spec.standoff_xy else spec.channel_depth / 2
+    y = spec.channel_depth / 2
     slab = block(
         -spec.sled_w, spec.sled_w,
         y - SECTION_T / 2, y + SECTION_T / 2,
         spec.z_bot - 1.0, spec.z_top + 1.0,
     )
-    parts = [
-        build_sled(spec).intersect(slab),
-        build_pcb_board(spec).intersect(slab),
-        build_standoffs(spec).intersect(slab),
-    ]
-    solids = [s for p in parts for s in p.solids().vals()]
-    return cq.Workplane("XY").add(cq.Compound.makeCompound(solids))
+    metal = build_sled(spec).intersect(slab)
+    board = build_pcb_mock(spec).intersect(slab)
+    return cq.Workplane("XY").add(
+        cq.Compound.makeCompound(metal.solids().vals() + board.solids().vals())
+    )
 
 
 def _overlap(a: cq.Workplane, b: cq.Workplane) -> float:
@@ -164,27 +147,14 @@ def check_clearance(spec: ChassisSpec) -> list[str]:
         volume = _overlap(a, b)
         require(volume <= 0.0, f"{name}: {volume:.3f} mm3 of interference")
 
-    # The tabs only register the tray now, but they still must not sit on the board.
+    # The board has to be able to get in, and stay put once it has.
     slot_gap = spec.lip_tab_z[0] - spec.pcb_t
     require(slot_gap >= 0.0, f"retention tab bites into the board by {-slot_gap:.2f} mm")
-
-    # Standoffs have to bed on flat floor, not lap onto a bend, or the board tilts.
-    # These sit *on* the floor, so a coplanar contact patch is expected and the
-    # kernel reports a sliver for it. CONTACT_TOL passes that while still
-    # catching a standoff that genuinely runs into a wall.
-    standoffs = build_standoffs(spec)
-    if spec.standoff_xy:
-        volume = _overlap(standoffs, sled)
-        require(volume <= CONTACT_TOL, f"a standoff fouls the tray: {volume:.3f} mm3")
-        for x, y in spec.standoff_xy:
-            reach = abs(x) + spec.standoff_od / 2
-            require(
-                reach <= spec.flat_floor_half_w + 1e-9,
-                f"standoff at x={x:.2f} reaches {reach:.2f}, past the flat floor's "
-                f"{spec.flat_floor_half_w:.2f}",
-            )
-    else:
-        require(False, "no standoffs: the board would rest on bare metal")
+    require(
+        spec.bearing_w >= spec.min_bearing,
+        f"board sits on only {spec.bearing_w:.2f} mm of ledge at full side "
+        f"clearance, against a {spec.min_bearing:.2f} mm minimum",
+    )
 
     # The module has to be able to get in too.
     aperture_w, aperture_h = spec.aperture_required

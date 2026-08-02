@@ -1,30 +1,22 @@
-"""The sled: a tray folded from sheet, carrying the PCB on adhesive standoffs.
+"""The sled: the U-section carrier the PCB slides into.
 
-Read :data:`PIPELINE` as a fabrication sequence. Each entry is one identifiable
-feature of the folded part, in the order it comes into being, and any of them can
-be exported alone via ``build.py --stage N``.
+Read :data:`PIPELINE` as a setup sheet. Each entry is one operation on the
+emerging part, in the order a machinist would run it, and every one of them can
+be exported on its own via ``build.py --stage N``.
 
-Conventions, unchanged from when this was a machined part:
+Conventions, applied without exception:
 
 1. Every transform is ``(part, spec) -> part``.
-2. No transform selects on geometry a previous transform produced. Positions come
-   from the spec in absolute coordinates.
-3. No numeric literals; everything comes from the spec or its derived values.
+2. No transform selects on the geometry a previous transform produced. Positions
+   come from the spec in absolute coordinates. Selector chains such as
+   ``.faces(">Z")`` break silently the moment an upstream step changes topology,
+   and that is how a model like this rots.
+3. No numeric literals -- everything comes from the spec or its derived values.
+4. Material is removed by building the cutter's swept volume and subtracting it.
 
-How the folds are modelled
---------------------------
-The tray body is built as an outer envelope minus an inner cavity, both with
-filleted corners. That is not a shortcut: because the inner fillet is ``bend_r``
-and the outer is ``bend_r + sheet_t``, the two arcs come out concentric on their
-own, so every bend has the right radius and the wall is exactly one sheet
-thickness everywhere. The wing folds are made the same way, by filleting the
-inside and outside corners of the junction after the flange is added.
-
-One deliberate idealisation: where the side walls meet the back wall this model
-runs the material continuously round the corner, whereas the real part has a
-bend relief slot there. The relief is in the flat pattern, which is what gets
-cut. Treat the STEP as the folded form and :mod:`flatten` as the manufacturing
-truth.
+The whole part is cut from +Z with a plain end mill. There are no undercuts and
+no second setup: the upper channel forms the arms, and the narrower lower pocket
+sunk into its floor leaves the two ledges the board rides on.
 """
 
 from typing import Callable
@@ -32,85 +24,110 @@ from typing import Callable
 import cadquery as cq
 
 from params import ChassisSpec
-from tooling import OVERSHOOT, block, rod
+from tooling import OVERSHOOT, block, break_edges_near, countersunk_hole, rod
 
 Transform = Callable[[cq.Workplane, ChassisSpec], cq.Workplane]
 
 
-def make_tray_shell(spec: ChassisSpec) -> cq.Workplane:
-    """Floor, two side walls and the back wall, in one folded shell.
-
-    Open at the top, where the board goes in, and open at the front, where the
-    faceplate closes it.
-    """
-    outer = block(
-        -spec.body_w / 2, spec.body_w / 2,
-        spec.sheet_t, spec.sled_depth,
+def make_sled_blank(spec: ChassisSpec) -> cq.Workplane:
+    """Stock: a rectangular bar at the full wing envelope."""
+    return block(
+        -spec.sled_w / 2, spec.sled_w / 2,
+        0.0, spec.sled_depth,
         spec.z_bot, spec.z_top,
-    ).edges("(not >Z) and (not <Y)").fillet(spec.bend_r + spec.sheet_t)
-
-    cavity = block(
-        -spec.channel_w / 2, spec.channel_w / 2,
-        spec.sheet_t - OVERSHOOT, spec.channel_depth,
-        spec.z_floor_inner, spec.z_top + OVERSHOOT,
-    ).edges("(not >Z) and (not <Y)").fillet(spec.bend_r)
-
-    return outer.cut(cavity)
+    )
 
 
-def add_wing_flanges(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
-    """Fold a flange outward at the front of each side wall.
+def cut_body_relief(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
+    """Profile the body down to ``body_w``, leaving the two wings proud at the front.
 
-    These bed against the faceplate and carry the screws that hold the two parts
-    together. Folding them outward rather than inward keeps the tray's opening
-    clear, at the cost of the aperture being that much wider.
-
-    Each flange reaches back to the wall's inner face rather than starting at its
-    outer one, so the two share a whole face and fuse into a single solid. Butted
-    at the outer face they would touch along a line only, and the fold would come
-    apart.
-
-    It spans the wall's flat height only, starting clear of the floor's bend. A
-    flange carried down into that curve would have nothing straight to fold from,
-    and the outer bend radius would have no room to run out at the bottom, which
-    is why the real part is relieved there too.
+    The wings are what is *left behind* here rather than something added later,
+    which is how they actually appear when the block is profiled. The corner
+    where each wing meets the body is concave, so the cutter's matching corner
+    is rounded off at the tool radius -- an end mill cannot leave it sharp.
     """
+    cutters = []
     for sign in (-1, 1):
-        flange = block(
-            sign * spec.channel_w / 2, sign * (spec.body_w / 2 + spec.wing_w),
-            0.0, spec.sheet_t,
-            spec.wing_z0, spec.z_top,
+        x_inner = sign * spec.body_w / 2
+        x_outer = sign * (spec.sled_w / 2 + OVERSHOOT)
+        cutter = block(
+            x_inner, x_outer,
+            spec.wing_len, spec.sled_depth + OVERSHOOT,
+            spec.z_bot - OVERSHOOT, spec.z_top + OVERSHOOT,
         )
-        part = part.union(flange)
+        corner = cq.selectors.NearestToPointSelector((x_inner, spec.wing_len, spec.z_mid))
+        cutters.append(cutter.edges("|Z").edges(corner).fillet(spec.tool_r))
+
+    for cutter in cutters:
+        part = part.cut(cutter)
     return part
 
 
-def form_wing_bends(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
-    """Round the wing folds to the bend radius, inside and out.
+def cut_upper_channel(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
+    """Rough out the U -- the opening the board and its components live in.
 
-    The flange arrives butted square to the wall; sheet cannot turn a sharp
-    corner. Filleting the inside at ``bend_r`` and the outside at
-    ``bend_r + sheet_t`` puts the two arcs concentric, which is what a brake
-    actually leaves.
+    Open at the top and at the front, closed by the back wall. The two rear
+    corners carry the tool radius.
     """
-    for sign in (-1, 1):
-        inside = cq.selectors.NearestToPointSelector(
-            (sign * spec.body_w / 2, spec.sheet_t, spec.z_mid)
-        )
-        part = part.edges("|Z").edges(inside).fillet(spec.bend_r)
+    cutter = block(
+        -spec.channel_w / 2, spec.channel_w / 2,
+        -OVERSHOOT, spec.channel_depth,
+        0.0, spec.z_top + OVERSHOOT,
+    )
+    cutter = cutter.edges("|Z").edges(">Y").fillet(spec.tool_r)
+    return part.cut(cutter)
 
-        outside = cq.selectors.NearestToPointSelector(
-            (sign * spec.channel_w / 2, 0.0, spec.z_mid)
+
+def cut_lower_pocket(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
+    """Sink the narrower pocket that leaves the two ledges the board sits on.
+
+    Its floor gives the clearance for bottom-side components and solder tails;
+    its walls stand one ``ledge_w`` inboard of the channel walls.
+    """
+    cutter = block(
+        -spec.pocket_w / 2, spec.pocket_w / 2,
+        -OVERSHOOT, spec.channel_depth,
+        spec.z_pocket_floor, 0.0,
+    )
+    cutter = cutter.edges("|Z").edges(">Y").fillet(spec.tool_r)
+    return part.cut(cutter)
+
+
+def cut_corner_reliefs(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
+    """Relieve the channel's rear corners so a square board can seat fully.
+
+    A milled corner is round and a PCB corner is often square, so without this
+    the board fouls the fillet and stops short of the back wall. The relief is
+    centred on the nominal corner with the finishing cutter, and runs the height
+    of the channel.
+
+    Skipped when the board's own corners are already at least as round as the
+    fillet the roughing cutter leaves, since then it drops straight in. That is
+    worth skipping rather than cutting anyway: these reliefs are the only
+    feature the small finisher takes to full channel depth, and dropping them
+    hands the deepest cut back to the stiffer tool.
+    """
+    if not spec.needs_corner_reliefs:
+        return part
+
+    for sign in (-1, 1):
+        part = part.cut(
+            rod(
+                sign * spec.channel_w / 2,
+                spec.channel_depth,
+                spec.fine_tool_d,
+                -OVERSHOOT,
+                spec.z_top + OVERSHOOT,
+            )
         )
-        part = part.edges("|Z").edges(outside).fillet(spec.bend_r + spec.sheet_t)
     return part
 
 
 def cut_cable_relief(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
     """Notch the back wall so the loom can leave the far end of the board.
 
-    Open at the top, so it is part of the flat blank's outline rather than a
-    closed hole, and costs nothing extra to cut.
+    Open at the top, so it is another plunge from +Z in the same setup rather
+    than a bored hole needing the part turned over.
     """
     cutter = block(
         -spec.cable_slot_w / 2, spec.cable_slot_w / 2,
@@ -121,30 +138,52 @@ def cut_cable_relief(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
 
 
 def drill_wing_holes(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
-    """Punch the two M2 clearance holes that hold the tray to the faceplate.
+    """Countersink the two M2 clearance holes that dock the sled to the plate.
 
-    Plain holes, not countersunk: a 4 mm countersunk head cannot be sunk into
-    sheet this thin, so these take pan heads and the plate carries the thread.
+    The recess opens on the wings' rear faces: the screws are driven from behind
+    while the module is on the bench, then the assembled module goes in as one.
     """
     for x, z in spec.wing_hole_xz:
-        hole = rod(0.0, 0.0, spec.screw_clear_d, -OVERSHOOT, spec.sheet_t + OVERSHOOT)
         part = part.cut(
-            hole.rotate((0, 0, 0), (1, 0, 0), -90).translate((x, 0, z))
+            countersunk_hole(
+                x=x,
+                z=z,
+                y_face=spec.wing_len,
+                depth=spec.wing_len,
+                clear_d=spec.screw_clear_d,
+                head_d=spec.csk_d,
+                angle=spec.csk_angle,
+            )
         )
     return part
 
 
+def break_edges(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
+    """Chamfer the nose, so the sled leads cleanly into the routed aperture."""
+    return break_edges_near(
+        part,
+        spec.edge_break,
+        -spec.sled_w, spec.sled_w,
+        spec.sled_depth - spec.edge_break / 2, spec.sled_depth + OVERSHOOT,
+        spec.z_bot - OVERSHOOT, spec.z_top + OVERSHOOT,
+        what=f"sled {spec.name}",
+    )
+
+
 PIPELINE: tuple[Transform, ...] = (
-    add_wing_flanges,
-    form_wing_bends,
+    cut_body_relief,
+    cut_upper_channel,
+    cut_lower_pocket,
+    cut_corner_reliefs,
     cut_cable_relief,
     drill_wing_holes,
+    break_edges,
 )
 
 
 def build_sled(spec: ChassisSpec, upto: int | None = None) -> cq.Workplane:
     """Run the pipeline, optionally stopping after ``upto`` transforms."""
-    part = make_tray_shell(spec)
+    part = make_sled_blank(spec)
     for transform in PIPELINE[:upto]:
         part = transform(part, spec)
     return part

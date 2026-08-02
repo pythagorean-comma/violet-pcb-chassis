@@ -14,24 +14,19 @@ def _rule(title: str) -> str:
 
 def manufacturing_report(spec: ChassisSpec) -> str:
     """Everything needed to quote and cut one chassis."""
-    from flatten import flat_pattern
-
     ap_w, ap_h = spec.aperture_required
+    sled_x, sled_y, sled_z = spec.stock_sled
     plate_x, plate_y, plate_z = spec.stock_plate
-    flat = flat_pattern(spec)
 
     lines = [
         f"\n{'=' * 68}",
         f"  {spec.name}  -  PCB {spec.pcb_w} x {spec.pcb_depth} x {spec.pcb_t} mm",
         f"{'=' * 68}",
-        "  Two parts, two processes:",
-        f"    Tray       {spec.material} sheet, {spec.sheet_t:.1f} mm, laser cut and folded",
-        "    Faceplate  6061-T6 aluminium, machined from plate",
+        "  Material: 6061-T6 aluminium, 2 parts",
     ]
 
     lines.append(_rule("Stock"))
-    lines.append(f"  Tray blank {flat.width:.1f} x {flat.height:.1f} mm of "
-                 f"{spec.sheet_t:.1f} mm sheet  (see the DXF)")
+    lines.append(f"  Sled       {sled_x:.1f} x {sled_y:.1f} x {sled_z:.1f} mm  (X x Y x Z)")
     lines.append(f"  Faceplate  {plate_x:.1f} x {plate_y:.1f} x {plate_z:.1f} mm")
 
     lines.append(_rule("Instrument preparation"))
@@ -44,39 +39,30 @@ def manufacturing_report(spec: ChassisSpec) -> str:
     lines.append(f"  Fit M3 threaded inserts at X {spec.body_mount_xz[0][0]:+.2f}"
                  f" and {spec.body_mount_xz[1][0]:+.2f}, on the aperture's centreline")
 
-    lines.append(_rule("Tray: bend schedule"))
-    lines.append(f"  Material      {spec.material}, {spec.sheet_t:.1f} mm")
-    lines.append(f"  Inside radius {spec.bend_r:.1f} mm  ({spec.bend_r / spec.sheet_t:.1f} x t)")
-    lines.append(f"  K-factor      {spec.k_factor:.2f}  -> bend allowance "
-                 f"{spec.bend_allowance:.3f} mm per 90 deg bend")
-    lines.append("                CHECK THIS AGAINST YOUR OWN: bend allowance is")
-    lines.append("                shop-specific and every flat dimension depends on it.")
-    lines.append(f"  {len(flat.bends)} bends, all 90 deg:")
-    for bend in flat.bends:
-        lines.append(f"    {bend.name:<12} {bend.direction:<8} at {bend.position:6.2f} mm "
-                     f"on the blank")
-    lines.append(f"  Bend relief   {spec.bend_relief_w:.1f} mm at each bend end")
-    lines.append("")
-    lines.append("  DFM, rule against actual:")
-    lines.append(f"    bend radius       1-2 x t          {spec.bend_r / spec.sheet_t:.1f} x t")
-    lines.append(f"    min flange        R + 4t = {spec.min_flange:.1f}     "
-                 f"{flat.shortest_flange:.1f} mm")
-    lines.append(f"    hole to bend      4t = {spec.min_feature_to_bend:.1f}         "
-                 f"{spec.wing_hole_from_bend:.2f} mm")
-    lines.append(f"    hole to edge      2t = {spec.min_edge_dist:.1f}         "
-                 f"{spec.wing_hole_from_tip:.2f} mm")
-    lines.append("  The M2 holes are punched flat, so the wing flange is sized to")
-    lines.append("  hold them clear of the fold rather than to suit the screw.")
-
-    lines.append(_rule("Faceplate: tooling"))
     fine_work = ["apertures"] if spec.apertures else []
-    fine_work.append("retention tabs")
-    lines.append(f"  Roughing      {spec.tool_d:.1f} mm end mill  (outline, rear relief)")
+    if spec.needs_corner_reliefs:
+        fine_work.insert(0, "corner reliefs")
+    fine_work.append("faceplate lip")
+
+    lines.append(_rule("Tooling"))
+    lines.append(f"  Roughing      {spec.tool_d:.1f} mm end mill  (channel, pocket, profile)")
     lines.append(f"  Finishing     {spec.fine_tool_d:.1f} mm end mill  ({', '.join(fine_work)})")
+    lines.append(
+        f"  Deepest cut   {spec.max_reach:.1f} mm from the sled's top face"
+        f"  =  {spec.max_reach / spec.deep_cut_tool_d:.1f} x D"
+        f" on the {spec.deep_cut_tool_d:.1f} mm cutter"
+    )
+    if not spec.needs_corner_reliefs:
+        lines.append(
+            f"                the board's own {spec.pcb_corner_r:.1f} mm corners clear the"
+            f" milled fillets, so no corner reliefs are needed"
+        )
+    lines.append(f"  Min internal radius  {spec.tool_r:.2f} mm in the channel")
+    lines.append("  Sled is one setup from +Z. No undercuts.")
 
     lines.append(_rule("Fits"))
-    lines.append(f"  Board to wall        {spec.side_clear:.2f} mm each side")
-    lines.append(f"  Board above floor    {spec.standoff_h:.2f} mm on the standoffs")
+    lines.append(f"  Board on the ledge   {spec.bearing_w:.2f} mm bearing each side")
+    lines.append(f"  Board to arm         {spec.side_clear:.2f} mm each side")
     lines.append(f"  Board to tab         {spec.slot_clear:.2f} mm above")
     lines.append(f"  Board to back wall   {spec.end_clear:.2f} mm")
 
@@ -97,9 +83,9 @@ def manufacturing_report(spec: ChassisSpec) -> str:
     lines.append("               driven from outside, after the module is in")
 
     lines.append(_rule("Assembly"))
-    lines.append("  1. Stick the standoffs to the tray floor, then screw the board down.")
-    lines.append("  2. Screw the faceplate to the tray's wing flanges from behind; the")
-    lines.append("     retention tabs drop between the walls and register the two parts.")
+    lines.append("  1. Slide the PCB into the sled channel until it meets the back wall.")
+    lines.append("  2. Screw the faceplate to the sled wings from behind; the retention")
+    lines.append("     tabs drop into the channel and hold the board's front edge down.")
     lines.append("  3. Insert the whole module through the aperture from outside.")
     lines.append("  4. Fix the faceplate to the body.")
 
@@ -109,7 +95,7 @@ def manufacturing_report(spec: ChassisSpec) -> str:
         f"  Front corners  no tall parts within {spec.lip_overhang:.1f} mm of each side edge"
         f" over the first {spec.lip_h:.1f} mm -- the retention tabs land there"
     )
-    lines.append(f"  Bottom side  {spec.standoff_h:.1f} mm clear, the standoff height")
+    lines.append(f"  Bottom side  {spec.bot_clear:.1f} mm clear, staying 2.0 mm inside the outline")
     lines.append(f"  Cable exit   {spec.cable_slot_w:.1f} mm notch in the back wall")
 
     if spec.apertures:
