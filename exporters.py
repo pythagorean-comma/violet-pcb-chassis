@@ -2,12 +2,36 @@ import os
 import re
 
 import cadquery as cq
+from OCP.gp import gp_Ax2, gp_Dir, gp_Pnt
 
 OUTPUT_PATH = "out"
 DOC_PATH = "docs"           # committed assets, regenerated only by build.py --docs
 
+def _upright(model, projection_dir):
+    """Rotate `model` so that its +Z reads as up the page in the projection.
+
+    CadQuery hands the projection direction straight to gp_Ax2, which picks its
+    own arbitrary perpendicular axis, and for every direction used here that
+    frame comes back with model +Z pointing *down*. Left alone it draws the sled
+    with its channel opening facing the floor.
+
+    Rotating 180 degrees about the viewing axis is the right correction because
+    it spins the image in its own plane: the same faces stay towards the camera,
+    but both projected coordinates negate, so down becomes up.
+
+    The test is computed rather than hardcoded, so this stays correct if anyone
+    changes projectionDir. Directions whose frame is already square to Z, such as
+    the section view's, come back unrotated.
+    """
+    axes = gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(*projection_dir))
+    if axes.YDirection().Z() >= 0:
+        return model
+    return model.rotate((0, 0, 0), projection_dir, 180)
+
 PREVIEW_OPTS = {            # the fast visual check
-    "projectionDir": (1, -1, 0.8),
+    # Chosen so an exploded view reads left to right in assembly order, sled
+    # then board then faceplate. _upright corrects which way up it lands.
+    "projectionDir": (-1, 1, 0.8),
     "width": 800, "height": 800,
     # CadQuery's own defaults here are marginLeft=200, marginTop=20, which
     # pushes a part this size off the left of the frame.
@@ -37,6 +61,7 @@ def export_svg_preview(model, name):
     """Write the shaded-line preview render for `model`."""
     os.makedirs(OUTPUT_PATH, exist_ok=True)
     svg_path = f"{OUTPUT_PATH}/{name}.svg"
+    model = _upright(model, PREVIEW_OPTS["projectionDir"])
     cq.exporters.export(model, svg_path, opt=PREVIEW_OPTS)
     print("Exported:", svg_path)
 
@@ -70,20 +95,23 @@ def export_section_preview(model, name):
     print("Exported:", svg_path)
 
 DOC_OPTS = {                # the README hero image
-    "projectionDir": (1, -1, 0.8),
+    "projectionDir": (-1, 1, 0.8),
     "width": 1000, "height": 700,
     "marginLeft": 20, "marginTop": 20,
     "showAxes": False,
-    "showHidden": False,    # dashed internals read as noise at README size
+    # An isometric wireframe without its hidden lines is ambiguous about which
+    # way round it is; these are what show you are looking into an open channel.
+    "showHidden": True,
 }
 
-# Stroke colour per theme. Nothing else differs, and the background stays
-# transparent in both -- each file is only ever shown against its own backdrop,
-# and transparency lets the dark one sit correctly on every GitHub dark variant
-# rather than just the default one.
+# Colours per theme. Nothing else differs, and the background stays transparent
+# in both -- each file is only ever shown against its own backdrop, and
+# transparency lets the dark one sit correctly on every GitHub dark variant
+# rather than just the default one. The hidden lines need their own value per
+# theme, since a grey chosen to recede against white disappears against black.
 DOC_THEMES = {
-    "light": (32, 32, 32),
-    "dark": (222, 222, 222),
+    "light": {"strokeColor": (32, 32, 32), "hiddenColor": (176, 176, 176)},
+    "dark": {"strokeColor": (222, 222, 222), "hiddenColor": (110, 110, 110)},
 }
 
 DOC_PAD = 8.0               # breathing room around the drawing, in SVG units
@@ -137,8 +165,9 @@ def _tighten_svg(svg, pad=DOC_PAD):
 def export_doc_svg(model, name, theme):
     """Write a README-ready SVG for `model`, cropped and coloured for `theme`."""
     os.makedirs(DOC_PATH, exist_ok=True)
+    model = _upright(model, DOC_OPTS["projectionDir"])
     shape = model.val() if hasattr(model, "val") else model
-    opts = dict(DOC_OPTS, strokeColor=DOC_THEMES[theme])
+    opts = dict(DOC_OPTS, **DOC_THEMES[theme])
     svg_path = f"{DOC_PATH}/{name}-{theme}.svg"
     with open(svg_path, "w") as handle:
         handle.write(_tighten_svg(cq.exporters.svg.getSVG(shape, opts)))
