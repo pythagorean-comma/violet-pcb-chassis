@@ -6,6 +6,7 @@
     python build.py --spec cycfi --stage 4 the sled part-way through, to eyeball
     python build.py --check                clearance checks only, no export
     python build.py --list                 what is defined, and the steps
+    python build.py --docs                 regenerate the committed README image
 """
 
 import argparse
@@ -13,7 +14,9 @@ import sys
 
 from assembly import build_assembly
 from exporters import (
+    DOC_THEMES,
     export_assembly_step,
+    export_doc_svg,
     export_section_preview,
     export_step_file,
     export_svg_preview,
@@ -41,6 +44,18 @@ def export_parts(spec: ChassisSpec) -> None:
         export_svg_preview(assembly.toCompound(), label)
 
     export_section_preview(build_channel_section(spec), f"section_{spec.name}")
+
+
+def export_docs(spec: ChassisSpec) -> None:
+    """Write the README's hero image, in both colour themes.
+
+    Kept out of `export_parts` on purpose. docs/ is committed, so regenerating it
+    has to be a deliberate act -- otherwise every ordinary build dirties the
+    working tree and the asset churns on every commit.
+    """
+    exploded = build_assembly(spec, exploded=True).toCompound()
+    for theme in DOC_THEMES:
+        export_doc_svg(exploded, "exploded", theme)
 
 
 def export_stage(spec: ChassisSpec, stage: int) -> None:
@@ -72,6 +87,9 @@ def main() -> int:
     parser.add_argument("--stage", type=int, help="export the sled after N operations")
     parser.add_argument("--check", action="store_true", help="clearance checks only")
     parser.add_argument("--list", action="store_true", help="show specs and pipelines")
+    parser.add_argument(
+        "--docs", action="store_true", help="regenerate the committed README image"
+    )
     args = parser.parse_args()
 
     if args.list:
@@ -79,6 +97,10 @@ def main() -> int:
         return 0
 
     specs = [SPECS[args.spec]] if args.spec else list(SPECS.values())
+
+    if args.docs:
+        export_docs(specs[0])
+        return 0
 
     if args.stage is not None:
         if not args.spec:
