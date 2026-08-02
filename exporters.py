@@ -160,6 +160,107 @@ def _tighten_svg(svg, pad=DOC_PAD):
     )
     return _SVG_OPEN_RE.sub(opening, svg, count=1)
 
+OUTLINE_LAYER = "CUT"
+BEND_LAYER = "BEND"
+
+def export_flat_dxf(pattern, name):
+    """Write the developed blank as a DXF, outline and bend lines on separate layers.
+
+    Two layers because a fabricator needs to tell them apart: the outline is cut,
+    the bend lines are not. Sending one layer with everything on it invites a
+    laser to cut the part in half along its own fold.
+    """
+    import ezdxf
+
+    os.makedirs(OUTPUT_PATH, exist_ok=True)
+    dxf_path = f"{OUTPUT_PATH}/{name}.dxf"
+
+    doc = ezdxf.new("R2010", setup=True)
+    doc.units = ezdxf.units.MM
+    doc.layers.add(OUTLINE_LAYER, color=7)
+    doc.layers.add(BEND_LAYER, color=1, linetype="DASHED")
+    msp = doc.modelspace()
+
+    msp.add_lwpolyline(
+        pattern.outline, close=True, dxfattribs={"layer": OUTLINE_LAYER}
+    )
+
+    # Holes go on the cut layer with the outline: they are cut in the same pass,
+    # while the sheet is still flat.
+    for x, y, dia in pattern.holes:
+        msp.add_circle((x, y), dia / 2, dxfattribs={"layer": OUTLINE_LAYER})
+
+    for bend in pattern.bends:
+        msp.add_line(*bend.ends, dxfattribs={"layer": BEND_LAYER})
+
+    doc.saveas(dxf_path)
+    print("Exported:", dxf_path)
+
+ANNOTATION_LAYER = "NOTES"
+TEXT_H = 2.2          # mm, legible when the drawing is printed at 1:1
+LABEL_GAP = 1.2       # mm, from a bend line to its label
+FLAT_MARGIN = 6.0     # mm of paper around the blank
+
+def export_flat_svg(pattern, name):
+    """Render the exported DXF back out as an SVG, at true size.
+
+    Rendered from the file rather than from `pattern`, so the picture is evidence
+    of what a fabricator actually receives rather than of what the code meant to
+    write. That distinction earned its keep once already: the first version of
+    this flat pattern unfolded the wings the wrong way, and a drawing would have
+    shown it at a glance.
+
+    Labels go onto an in-memory copy of the document, so the DXF on disk stays a
+    clean cut file with nothing to remember to delete. Placing them in model
+    coordinates also means ezdxf does the mapping into the SVG's own units.
+    """
+    import ezdxf
+    from ezdxf.addons.drawing import Frontend, RenderContext, config, layout, svg
+
+    doc = ezdxf.readfile(f"{OUTPUT_PATH}/{name}.dxf")
+    msp = doc.modelspace()
+    doc.layers.add(ANNOTATION_LAYER, color=5)
+
+    # Colour 7 means "white or black, whichever suits the background", and the
+    # renderer resolves it to white, which is invisible on white paper. Pin it.
+    doc.layers.get(OUTLINE_LAYER).rgb = (0, 0, 0)
+
+    def note(text, at, align="MIDDLE_LEFT", rotation=0):
+        msp.add_text(
+            text,
+            dxfattribs={"layer": ANNOTATION_LAYER, "height": TEXT_H, "rotation": rotation},
+        ).set_placement(at, align=ezdxf.enums.TextEntityAlignment[align])
+
+    for bend in pattern.bends:
+        mx, my = bend.midpoint
+        if bend.axis == "x":
+            note(f"{bend.name} ({bend.direction})", (mx + LABEL_GAP, my), rotation=90)
+        else:
+            note(f"{bend.name} ({bend.direction})", (mx, my - LABEL_GAP), "TOP_CENTER")
+
+    xs = [p[0] for p in pattern.outline]
+    ys = [p[1] for p in pattern.outline]
+    note(
+        f"{name}   blank {pattern.width:.1f} x {pattern.height:.1f} mm   "
+        f"{len(pattern.bends)} bends, all 90 deg   drawn 1:1",
+        (min(xs), max(ys) + 2 * TEXT_H),
+    )
+
+    backend = svg.SVGBackend()
+    Frontend(
+        RenderContext(doc),
+        backend,
+        config.Configuration(background_policy=config.BackgroundPolicy.WHITE),
+    ).draw_layout(msp)
+
+    # The renderer honours the BEND layer's DASHED linetype by drawing real dash
+    # geometry, so the bend lines come out dashed with nothing added here.
+    page = layout.Page(0, 0, layout.Units.mm, layout.Margins.all(FLAT_MARGIN))
+    svg_path = f"{OUTPUT_PATH}/{name}.svg"
+    with open(svg_path, "w") as handle:
+        handle.write(backend.get_string(page, settings=layout.Settings(scale=1.0)))
+    print("Exported:", svg_path)
+
 def export_doc_svg(model, name, theme):
     """Write a README-ready SVG for `model`, cropped and coloured for `theme`."""
     os.makedirs(DOC_PATH, exist_ok=True)
