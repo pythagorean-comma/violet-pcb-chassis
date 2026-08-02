@@ -17,10 +17,13 @@ from exporters import (
     DOC_THEMES,
     export_assembly_step,
     export_doc_svg,
+    export_flat_dxf,
+    export_flat_svg,
     export_section_preview,
     export_step_file,
     export_svg_preview,
 )
+from flatten import flat_pattern
 from faceplate import PIPELINE as PLATE_PIPELINE, build_faceplate
 from mock import build_channel_section, check_clearance
 from params import SPECS, ChassisSpec
@@ -36,6 +39,12 @@ def export_parts(spec: ChassisSpec) -> None:
     ):
         export_step_file(part, label)
         export_svg_preview(part, label)
+
+    # For a folded part the flat blank is the file the shop actually cuts. The
+    # SVG is rendered from the DXF just written, so it shows what they receive.
+    pattern = flat_pattern(spec)
+    export_flat_dxf(pattern, f"tray_flat_{spec.name}")
+    export_flat_svg(pattern, f"tray_flat_{spec.name}")
 
     for label, exploded in ((f"assembly_{spec.name}", False), (f"exploded_{spec.name}", True)):
         assembly = build_assembly(spec, exploded=exploded)
