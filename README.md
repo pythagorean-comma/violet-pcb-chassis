@@ -50,7 +50,10 @@ the ones that come from a published guide from the ones we chose. Taken from
 [PCBWay's sheet-metal bending guide](https://www.pcbway.com/blog/PCB_Design_Layout/Sheet_Metal_Bending_Design_Guide_DFM_Rules_Bend_Radius_Bend_Allowance_and_Ma_cd445f27.html):
 minimum flange of bend radius plus 4t, holes 4t clear of any bend, and an inside bend radius of
 1 to 2 times thickness for 5052. Our own defaults, not from any published rule: the K-factor,
-the bend relief width, and holes 2t clear of a sheared edge. Any of those three is worth
+the bend relief width, and holes 2t clear of a sheared edge, measured against each part's own
+gauge rather than a single figure (the tray is 1 mm, so 2 mm; the faceplate is 2 mm, so 4 mm,
+and the plate's width is sized to whichever of that and the screw-head clearance is
+larger). Any of those three is worth
 confirming with whoever cuts the parts, and the K-factor most of all, since every dimension on
 the flat blank depends on it.
 
@@ -165,8 +168,13 @@ standard stackup, since board thickness is a fabrication parameter and does not 
 layout file) and `top_clear` (15 mm, chosen to clear the 0.1 inch headers with mating sockets
 and some strain relief, not measured off an assembled board).
 
-`rmc` is still entirely **placeholder**, including its standoff pattern, which is inset from an
-assumed outline rather than measured. Replace all of it before cutting metal.
+`rmc` uses the real board outline (77.2 x 82.4 mm), and that is the only measured number in it.
+Its `pcb_t`, `pcb_corner_r` (left square), `top_clear`, aperture list and standoff pattern are
+all still **placeholder** and must be replaced before cutting metal. The standoffs are inset
+2.5 mm from the outline's corners so the pattern is plausibly shaped, but it is not where this
+board's mounting holes are. `--check` will not object: a standoff anywhere on the board and
+clear of the wall's bend radius is legal, so a hole in the wrong place validates exactly like
+one in the right place.
 
 Two things about the tray model are worth knowing when reading the STEP. Where the side walls
 meet the back wall it runs material continuously round the corner, whereas the real part has a

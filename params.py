@@ -51,7 +51,7 @@ transcribed rather than quoted:
 Our own defaults, chosen as reasonable practice and **not** from any published
 rule. Any of these is worth confirming with whoever is cutting the parts:
 
-    ``min_edge_dist``         hole to sheared edge, 2T
+    ``min_edge_dist``         hole to sheared edge, 2T of that part's own gauge
     ``min_web``               metal beside a cut-out in the plate, 2.0 mm
     ``k_factor``              0.38
     ``bend_relief_w``         1.5 mm
@@ -297,9 +297,24 @@ class ChassisSpec:
 
     @property
     def plate_w(self) -> float:
-        """Wide enough to carry the fixings, which the wing has already placed."""
+        """Wide enough to carry the fixings, which the wing has already placed.
+
+        Two rules reach past the fixing and the wider of them wins. The head has
+        to land on metal with ``min_web`` still beside it, and the hole has to
+        keep 2T of its own stock to the sheared edge. Which one binds depends on
+        the gauge: at 2 mm the edge rule asks for more than the head does, so
+        sizing on the head alone would leave the plate short of a rule the wing
+        is already held to.
+        """
         x = self.fixing_xz[1][0]
-        return 2 * (x + self.body_head_d / 2 + self.min_web)
+        for_head = self.body_head_d / 2 + self.min_web
+        for_edge = self.body_screw_clear_d / 2 + self.min_edge_dist(self.plate_t)
+        return 2 * (x + max(for_head, for_edge))
+
+    @property
+    def plate_hole_from_edge(self) -> float:
+        """Metal from a fixing hole's edge to the sheared edge of the plate."""
+        return self.plate_w / 2 - abs(self.fixing_xz[1][0]) - self.body_screw_clear_d / 2
 
     @property
     def plate_h(self) -> float:
@@ -366,9 +381,13 @@ class ChassisSpec:
         """
         return self.channel_w / 2 - self.bend_r
 
-    @property
-    def min_edge_dist(self) -> float:
-        """Least metal from a hole's edge to the edge of the sheet.
+    def min_edge_dist(self, t: float) -> float:
+        """Least metal from a hole's edge to the edge of the sheet, for stock ``t``.
+
+        Takes the thickness rather than reading one, because the two parts are
+        not the same gauge: the tray is 1 mm and the faceplate 2 mm, so the same
+        rule asks nearly twice as much of the plate. Pass ``sheet_t`` for
+        anything on the tray and ``plate_t`` for anything on the faceplate.
 
         **Our default, not a sourced rule.** The guide these other figures come
         from says nothing about hole-to-edge distance. 2T is common practice and
@@ -376,7 +395,7 @@ class ChassisSpec:
         whether the hole is punched or laser cut, and laser is the more forgiving
         of the two. Worth confirming rather than defending.
         """
-        return 2 * self.sheet_t
+        return 2 * t
 
     @property
     def min_flange(self) -> float:
@@ -412,7 +431,7 @@ class ChassisSpec:
         of faceplate.
         """
         nearest = self.bend_r + self.min_feature_to_bend + self.body_screw_clear_d / 2
-        furthest = self.wing_w - self.min_edge_dist - self.body_screw_clear_d / 2
+        furthest = self.wing_w - self.min_edge_dist(self.sheet_t) - self.body_screw_clear_d / 2
         return (nearest + furthest) / 2
 
     @property
@@ -479,15 +498,26 @@ class ChassisSpec:
                 "k_factor is a fraction of thickness to the neutral axis, so 0 to 0.5")
         require(self.bend_relief_w >= self.sheet_t,
                 "bend relief narrower than the sheet will tear at the corner")
-        require(self.wing_hole_from_tip >= self.min_edge_dist - TOL,
+        require(self.wing_hole_from_tip >= self.min_edge_dist(self.sheet_t) - TOL,
                 f"fixing hole sits {self.wing_hole_from_tip:.2f} mm from the flange tip, "
-                f"inside the {self.min_edge_dist:.1f} mm needed")
+                f"inside the {self.min_edge_dist(self.sheet_t):.1f} mm needed")
         require(self.wing_w - self.bend_r >= self.min_flange - TOL,
                 f"wing flange is shorter than the {self.min_flange} mm a brake can form")
         require(self.wing_hole_from_bend >= self.min_feature_to_bend - TOL,
                 f"fixing hole sits {self.wing_hole_from_bend:.2f} mm from its bend, inside "
                 f"the {self.min_feature_to_bend:.1f} mm needed; widen wing_w to at least "
-                f"{self.min_feature_to_bend + self.bend_r + self.body_screw_clear_d + self.min_edge_dist:.1f}")
+                f"{self.min_feature_to_bend + self.bend_r + self.body_screw_clear_d + self.min_edge_dist(self.sheet_t):.1f}")
+
+        # The same rule on the other part, against its own gauge. The plate is
+        # twice the tray's thickness, so this asks for twice the metal, and
+        # plate_w is sized to whichever of this and the head clearance is
+        # larger. It cannot fail as long as plate_w stays derived; it is here so
+        # that a hand-set plate width cannot quietly drop below the rule the
+        # wing is held to.
+        require(self.plate_hole_from_edge >= self.min_edge_dist(self.plate_t) - TOL,
+                f"fixing hole sits {self.plate_hole_from_edge:.2f} mm from the plate edge, "
+                f"inside the {self.min_edge_dist(self.plate_t):.1f} mm needed for "
+                f"{self.plate_t} mm stock")
 
         require(self.cable_slot_floor_z > self.pcb_t,
                 "cable notch floor must clear the board")
@@ -528,12 +558,10 @@ class ChassisSpec:
 # The builds
 # ---------------------------------------------------------------------------
 #
-# Two chassis are needed, one per board. Placeholder dimensions -- overwrite
-# pcb_w / pcb_depth / top_clear / bot_clear and the aperture list with the real
-# numbers; everything else follows.
-#
-# Which board is the larger of the two has been guessed. If it is the wrong way
-# round, swap the dimension blocks -- nothing else depends on the mapping.
+# Two chassis are needed, one per board. Both outlines are measured; what is
+# still assumed differs between them and is noted on each entry. Overwrite
+# top_clear, the standoff pattern and the aperture list as those become known;
+# everything else follows.
 
 SPECS: dict[str, ChassisSpec] = {
     # Cycfi Nu Series internal breakout board.
@@ -570,22 +598,34 @@ SPECS: dict[str, ChassisSpec] = {
             (22.52, 2.52),
         ),
     ),
-    # Entirely placeholder, including the standoff pattern, which is inset from
-    # the assumed outline the way cycfi's real one happens to sit. Replace all of
-    # it once the board is measured.
+    # RMC pizz/arco phase switching board.
+    #
+    # Measured: pcb_w, pcb_depth. The outline is the only part of this entry
+    # taken off the real board.
+    #
+    # Assumed:  pcb_t, pcb_corner_r (left square, unmeasured), top_clear, the
+    #           aperture list, and the standoff pattern below. Replace each of
+    #           them before cutting metal.
+    #
+    # The standoffs sit 2.5 mm in from the outline's corners, the way cycfi's
+    # real ones happen to. That keeps the placeholder plausibly shaped, but it
+    # is not where this board's mounting holes are: nothing here was measured.
+    # Note that the checks will not catch a wrong pattern. A standoff anywhere
+    # on the board and clear of the wall's bend radius is legal, so a hole in
+    # the wrong place validates exactly like one in the right place.
     "rmc": ChassisSpec(
         name="rmc",
-        pcb_w=36.0,
-        pcb_depth=44.0,
+        pcb_w=77.2,
+        pcb_depth=82.4,
         top_clear=6.0,
         apertures=(
             Aperture("jack_3mm5", x=0.0, z=2.5, w=6.5, kind="round"),
         ),
         board_holes=(
-            (-15.5, 41.5),
-            (-15.5, 2.5),
-            (15.5, 41.5),
-            (15.5, 2.5),
+            (-36.1, 79.9),
+            (-36.1, 2.5),
+            (36.1, 79.9),
+            (36.1, 2.5),
         ),
     ),
 }

@@ -72,10 +72,13 @@ def manufacturing_report(spec: ChassisSpec) -> str:
     lines.append(f"    K-factor          {spec.k_factor:.2f}             "
                  f"-> {spec.bend_allowance:.3f} mm per bend")
     lines.append("                      every flat dimension depends on this one")
-    lines.append(f"    hole to edge      2t = {spec.min_edge_dist:.1f}         "
-                 f"{spec.wing_hole_from_tip:.2f} mm on the wing,"
-                 f" {spec.plate_w / 2 - abs(spec.fixing_xz[1][0]) - spec.body_screw_clear_d / 2:.2f}"
-                 " on the plate")
+    lines.append("    hole to edge      2t, per part's own gauge:")
+    lines.append(f"                      wing  2 x {spec.sheet_t:.1f} = "
+                 f"{spec.min_edge_dist(spec.sheet_t):.1f}   "
+                 f"{spec.wing_hole_from_tip:.2f} mm")
+    lines.append(f"                      plate 2 x {spec.plate_t:.1f} = "
+                 f"{spec.min_edge_dist(spec.plate_t):.1f}   "
+                 f"{spec.plate_hole_from_edge:.2f} mm")
     lines.append(f"    bend relief       {spec.bend_relief_w:.1f} mm")
     lines.append("")
     lines.append("  The fixing holes are punched flat, so the wing flange is sized to")
