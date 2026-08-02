@@ -79,6 +79,7 @@ class ChassisSpec:
     pcb_w: float  # board width, across the plate
     pcb_depth: float  # board length, into the instrument
     pcb_t: float = 1.6
+    pcb_corner_r: float = 0.0  # the board's own corner radius; 0.0 means square
     top_clear: float = 8.0  # tallest component on the top side
     bot_clear: float = 3.0  # tallest component / solder tail underneath
 
@@ -250,6 +251,25 @@ class ChassisSpec:
         """Deepest cut from the sled's top face -- sets the tool stick-out."""
         return self.z_top - self.z_pocket_floor
 
+    @property
+    def needs_corner_reliefs(self) -> bool:
+        """Whether the channel's milled corners have to be relieved.
+
+        A board whose own corners are at least as round as the fillet the
+        roughing cutter leaves drops straight in. A squarer one fouls those
+        fillets and stops short of the back wall, so the corners need relieving.
+        """
+        return self.pcb_corner_r < self.tool_r
+
+    @property
+    def deep_cut_tool_d(self) -> float:
+        """Smallest cutter that has to reach the full depth of the channel.
+
+        The corner reliefs are the only feature cut with the finisher at full
+        depth, so skipping them hands the deepest cut back to the rougher.
+        """
+        return self.fine_tool_d if self.needs_corner_reliefs else self.tool_d
+
     # -- checks on the aperture data ----------------------------------------
 
     def aperture_warnings(self) -> list[str]:
@@ -319,6 +339,8 @@ class ChassisSpec:
                 "cable notch is wider than the channel")
         require(self.fine_tool_d <= self.tool_d,
                 "fine_tool_d is meant to be the smaller of the two cutters")
+        require(self.pcb_corner_r < min(self.pcb_w, self.pcb_depth) / 2,
+                f"pcb_corner_r {self.pcb_corner_r} is too large for the board outline")
 
 
 # ---------------------------------------------------------------------------
@@ -333,17 +355,31 @@ class ChassisSpec:
 # round, swap the dimension blocks -- nothing else depends on the mapping.
 
 SPECS: dict[str, ChassisSpec] = {
+    # Cycfi Nu Series internal breakout board.
+    #
+    # Outline, corner radius and part placement measured from the Eagle layout at
+    # github.com/cycfi/nu, commit dc334a32f05f (2021-12-14):
+    #   internal_breakout/internal_breakout.brd
+    # That work is CC BY-NC 4.0. Nothing of theirs is redistributed here; these
+    # are dimensions taken from it.
+    #
+    # Measured: pcb_w, pcb_depth, pcb_corner_r.
+    # Assumed:  pcb_t (a fab parameter, not in a .brd) and top_clear (chosen to
+    #           clear the 0.1 inch headers with mating sockets and strain relief).
+    #
+    # The board carries 17 headers and no panel connectors, so the faceplate is
+    # solid and the loom leaves through the sled's back-wall notch.
+    #
+    # It also has four M2 mounting holes inset 2.5 mm from each corner, unused
+    # here because the sled captures the board mechanically.
     "cycfi": ChassisSpec(
         name="cycfi",
         pcb_w=50.0,
-        pcb_depth=60.0,
-        top_clear=8.0,
+        pcb_depth=35.0,
+        pcb_corner_r=1.5,
+        top_clear=15.0,
         bot_clear=3.0,
-        # Aperture x is from the board's centreline, z from its underside.
-        apertures=(
-            Aperture("usb_c", x=-10.0, z=3.2, w=10.0, h=4.0, corner_r=1.6),
-            Aperture("jack_6mm", x=10.0, z=4.5, w=10.0, kind="round"),
-        ),
+        apertures=(),
     ),
     "rmc": ChassisSpec(
         name="rmc",

@@ -96,11 +96,20 @@ def cut_lower_pocket(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
 def cut_corner_reliefs(part: cq.Workplane, spec: ChassisSpec) -> cq.Workplane:
     """Relieve the channel's rear corners so a square board can seat fully.
 
-    A milled corner is round and a PCB corner is square, so without this the
-    board fouls the fillet and stops short of the back wall. The relief is
+    A milled corner is round and a PCB corner is often square, so without this
+    the board fouls the fillet and stops short of the back wall. The relief is
     centred on the nominal corner with the finishing cutter, and runs the height
     of the channel.
+
+    Skipped when the board's own corners are already at least as round as the
+    fillet the roughing cutter leaves, since then it drops straight in. That is
+    worth skipping rather than cutting anyway: these reliefs are the only
+    feature the small finisher takes to full channel depth, and dropping them
+    hands the deepest cut back to the stiffer tool.
     """
+    if not spec.needs_corner_reliefs:
+        return part
+
     for sign in (-1, 1):
         part = part.cut(
             rod(

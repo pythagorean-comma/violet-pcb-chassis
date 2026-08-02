@@ -107,10 +107,29 @@ enough ledge to sit on, that the module fits its own reported aperture, and that
 survived as a single solid. Finally, it flags cut-outs that would land on the sled's front face
 instead of the channel, which is the mistake that quietly scraps a faceplate.
 
+## Sources
+
+The `cycfi` variant is built around the [Cycfi Nu Series](https://github.com/cycfi/nu) internal
+breakout board. Its outline (50 x 35 mm), 1.5 mm corner radius and part placement were taken
+from the Eagle layout at
+[`internal_breakout.brd`](https://github.com/cycfi/nu/blob/dc334a32f05f/internal_breakout/internal_breakout.brd),
+pinned at commit `dc334a32f05f`.
+
+That work is by Cycfi Research and licensed
+[CC BY-NC 4.0](http://creativecommons.org/licenses/by-nc/4.0/). None of it is redistributed
+here; only dimensions were measured from it.
+
 ## Status
 
-The dimensions in `SPECS` are **placeholders**: plausible numbers standing in until the real
-boards are measured. Replace them before cutting metal.
+`cycfi` uses the real board outline. Two of its numbers are still assumptions: `pcb_t` (1.6 mm
+standard stackup, since board thickness is a fabrication parameter and does not appear in a
+layout file) and `top_clear` (15 mm, chosen to clear the 0.1 inch headers with mating sockets
+and some strain relief, not measured off an assembled board).
 
-`body_mount_holes` is still empty, so nothing yet fixes the faceplate to the instrument body.
-It is a data field, so adding those holes is an edit to the spec rather than to any code.
+`rmc` is still entirely **placeholder**: plausible numbers standing in until that board is
+measured. Replace them before cutting metal.
+
+`body_mount_holes` is empty on both, so nothing yet fixes the faceplate to the instrument body.
+It is a data field, so adding those holes is an edit to the spec rather than to any code. The
+Cycfi board also carries four M2 mounting holes inset 2.5 mm from its corners, currently unused
+because the sled captures the board mechanically.

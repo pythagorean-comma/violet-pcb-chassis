@@ -34,14 +34,25 @@ def manufacturing_report(spec: ChassisSpec) -> str:
     lines.append(f"  Depth into the body     {spec.sled_depth:.1f} mm minimum")
     lines.append(f"  Faceplate covers it by  {spec.plate_margin:.1f} mm all round")
 
+    fine_work = ["apertures"] if spec.apertures else []
+    if spec.needs_corner_reliefs:
+        fine_work.insert(0, "corner reliefs")
+    fine_work.append("faceplate lip")
+
     lines.append(_rule("Tooling"))
     lines.append(f"  Roughing      {spec.tool_d:.1f} mm end mill  (channel, pocket, profile)")
-    lines.append(f"  Finishing     {spec.fine_tool_d:.1f} mm end mill  (corner reliefs, apertures, lip)")
+    lines.append(f"  Finishing     {spec.fine_tool_d:.1f} mm end mill  ({', '.join(fine_work)})")
     lines.append(
         f"  Deepest cut   {spec.max_reach:.1f} mm from the sled's top face"
-        f"  =  {spec.max_reach / spec.fine_tool_d:.1f} x D on the finisher"
+        f"  =  {spec.max_reach / spec.deep_cut_tool_d:.1f} x D"
+        f" on the {spec.deep_cut_tool_d:.1f} mm cutter"
     )
-    lines.append(f"  Min internal radius  {spec.fine_tool_r:.2f} mm")
+    if not spec.needs_corner_reliefs:
+        lines.append(
+            f"                the board's own {spec.pcb_corner_r:.1f} mm corners clear the"
+            f" milled fillets, so no corner reliefs are needed"
+        )
+    lines.append(f"  Min internal radius  {spec.tool_r:.2f} mm in the channel")
     lines.append("  Sled is one setup from +Z. No undercuts.")
 
     lines.append(_rule("Fits"))

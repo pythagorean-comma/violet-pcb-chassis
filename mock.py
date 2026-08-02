@@ -22,7 +22,7 @@ The board slab itself, plus:
 import cadquery as cq
 
 from params import ChassisSpec
-from tooling import block
+from tooling import OVERSHOOT, block
 
 # How far inside the board outline tall bottom-side parts must stay. The board's
 # edges sit on the ledges, so nothing can hang below them there.
@@ -32,43 +32,60 @@ BOT_KEEPOUT_INSET = 2.0
 SECTION_T = 2.0
 
 
+def _outline_prism(spec: ChassisSpec, z0: float, z1: float) -> cq.Workplane:
+    """The board's outline, extruded between two heights.
+
+    Real boards are routed with a cutter and so have rounded corners. Modelling
+    that matters: whether the board's corners are sharper than the fillets left
+    in the channel is exactly what decides if it seats against the back wall, so
+    a check run against a squared-off outline would be answering the wrong
+    question. The keep-out volumes above the board share the outline for the same
+    reason, since a squared-off envelope would foul those fillets even when the
+    board itself does not.
+    """
+    half_w = spec.pcb_w / 2
+    prism = block(-half_w, half_w, 0.0, spec.pcb_depth, z0, z1)
+    if spec.pcb_corner_r > 0:
+        prism = prism.edges("|Z").fillet(spec.pcb_corner_r)
+    return prism
+
+
 def build_pcb_board(spec: ChassisSpec) -> cq.Workplane:
     """The bare board -- outline and thickness, no keep-outs.
 
     Separate from :func:`build_pcb_mock` because the assembly wants a board that
     looks like a board, while the clearance check wants the board plus every
-    volume its components claim. Both start from this one outline so the two
+    volume its components claim. Both start from the same outline so the two
     cannot drift apart.
     """
-    half_w = spec.pcb_w / 2
-    return block(-half_w, half_w, 0.0, spec.pcb_depth, 0.0, spec.pcb_t)
+    return _outline_prism(spec, 0.0, spec.pcb_t)
 
 
 def build_pcb_mock(spec: ChassisSpec) -> cq.Workplane:
     """The board and everything that must stay clear of metal around it."""
     half_w = spec.pcb_w / 2
 
-    board = build_pcb_board(spec)
+    # Everything above the board, then the two front corners given back so the
+    # retention tabs have somewhere to land.
+    top = _outline_prism(spec, spec.pcb_t, spec.z_top)
+    for sign in (-1, 1):
+        top = top.cut(
+            block(
+                sign * (half_w - spec.lip_overhang), sign * (half_w + OVERSHOOT),
+                -OVERSHOOT, spec.lip_h,
+                spec.pcb_t - OVERSHOOT, spec.z_top + OVERSHOOT,
+            )
+        )
 
-    # Top keep-out, in two pieces so the retention tabs have somewhere to land.
-    top_main = block(
-        -half_w, half_w,
-        spec.lip_h, spec.pcb_depth,
-        spec.pcb_t, spec.z_top,
-    )
-    top_front = block(
-        -(half_w - spec.lip_overhang), half_w - spec.lip_overhang,
-        0.0, spec.lip_h,
-        spec.pcb_t, spec.z_top,
-    )
-
+    # The board's own edges rest on the ledges, so nothing may hang below them
+    # there. Inset rather than rounded: it is already well inside the fillets.
     bottom = block(
         -(half_w - BOT_KEEPOUT_INSET), half_w - BOT_KEEPOUT_INSET,
         0.0, spec.pcb_depth - BOT_KEEPOUT_INSET,
         spec.z_pocket_floor, 0.0,
     )
 
-    return board.union(top_main).union(top_front).union(bottom)
+    return build_pcb_board(spec).union(top).union(bottom)
 
 
 def build_channel_section(spec: ChassisSpec) -> cq.Workplane:
